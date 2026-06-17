@@ -11,6 +11,8 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
   :root{
     /* Estándar de la casa Factiun */
@@ -131,8 +133,7 @@
       <div class="chip"><span class="o" style="background:#c9a23a"></span><div><div class="lab">Modo carga · 30036</div><div class="v" id="cMode">—</div></div></div>
     </div>
     <div class="ctrl">
-      <label>Emplazamiento</label>
-      <select id="emplaz" title="Cambia la ubicación (afecta al cálculo solar)" style="background:var(--card);border:1px solid var(--line2);color:var(--tx);border-radius:8px;padding:6px 9px;font:600 12px var(--sans);cursor:pointer;max-width:210px"></select>
+      <button id="btnEmplaz" title="Elegir emplazamiento (mapa mundi o búsqueda)">📍 Gorraiz · Navarra</button>
       <label>Día</label>
       <input type="range" id="dia" min="1" max="365" step="1" value="172">
       <span class="val" id="diaVal">21 jun</span>
@@ -169,6 +170,27 @@
     </div>
   </div>
   <footer class="app-foot">Factiun · Gemelo Digital TCU — <a href="https://imoriana3.github.io/proyectos/">Panel de Proyectos</a></footer>
+</div>
+
+<div id="emplazModal" style="display:none;position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.6);align-items:center;justify-content:center">
+  <div style="background:var(--panel);border:1px solid var(--line);border-radius:12px;width:min(700px,94vw);max-height:92vh;overflow:auto;padding:16px;font-family:var(--sans)">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+      <b style="flex:1;font-size:15px">📍 Elegir emplazamiento</b>
+      <button id="emplazClose" style="background:var(--card2);color:var(--tx);border:1px solid var(--line2);border-radius:8px;padding:5px 10px;cursor:pointer">✕</button>
+    </div>
+    <div style="font-size:12px;color:var(--tx2);margin-bottom:8px">Escribe un sitio y pulsa Buscar, o haz clic en el mapa. También puedes elegir un preset.</div>
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <input id="emplazSearch" placeholder="Ciudad, pueblo o dirección…" style="flex:1;padding:8px 10px;border-radius:8px;border:1px solid var(--line2);background:var(--card);color:var(--tx);font:inherit">
+      <button id="emplazGo" style="background:var(--accent);color:#06210f;border:none;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer">Buscar</button>
+    </div>
+    <div id="emplazResults" style="max-height:120px;overflow:auto;margin-bottom:8px"></div>
+    <div id="emplazMap" style="height:330px;border-radius:8px;overflow:hidden;border:1px solid var(--line2)"></div>
+    <div id="emplazPresets" style="display:flex;flex-wrap:wrap;gap:6px;margin:10px 0"></div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <span id="emplazPick" style="flex:1;font-size:12px;color:var(--tx2)">Elige un punto en el mapa o búscalo arriba.</span>
+      <button id="emplazUse" style="background:var(--accent);color:#06210f;border:none;border-radius:8px;padding:8px 16px;font-weight:700;cursor:pointer">Usar este punto</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -286,8 +308,8 @@ function snapIfAuto(){if(mode==='auto')s.angle=trackAngle(s.hour).R;}   /* el sl
 el('hora').oninput=function(){s.hour=parseFloat(this.value);snapIfAuto();};
 el('vel').oninput=function(){el('velVal').textContent=this.value+' min/s';};
 el('btnPlay').onclick=function(){playing=!playing; if(playing)setRT(false); this.textContent=playing?'⏸ Pausa':'▶ Play';this.style.borderColor=playing?'var(--accent)':'var(--line2)';this.style.color=playing?'var(--accent)':'var(--tx)';};
-/* ---- emplazamiento seleccionable (el <select> se rellena más abajo, una vez definido LOCS) ---- */
-el('emplaz').onchange=function(){LOC=LOCS[+this.value];LAT=LOC.lat*Math.PI/180;LON=LOC.lon;if(mode==='auto')s.angle=trackAngle(s.hour).R;};
+/* ---- emplazamiento: aplica una ubicación (preset o elegida en el mapa/búsqueda) ---- */
+function applyLoc(name,lat,lon,tz,dst){ LOC={n:name,lat:lat,lon:lon,tz:(tz==null?Math.round(lon/15):tz),dst:!!dst}; LAT=lat*Math.PI/180; LON=lon; if(el('btnEmplaz'))el('btnEmplaz').textContent='📍 '+name; if(mode==='auto')s.angle=trackAngle(s.hour).R; }
 /* ---- hora local (un disparo) + tiempo real (continuo) ---- */
 function nowLocal(){var d=new Date();var doy=Math.floor((Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate())-Date.UTC(d.getUTCFullYear(),0,0))/86400000);var utcH=d.getUTCHours()+d.getUTCMinutes()/60+d.getUTCSeconds()/3600;return {h:((utcH+tzOffset(doy))%24+24)%24, doy:doy};}
 function applyNow(){var t=nowLocal();dayN=t.doy;s.hour=t.h;el('dia').value=dayN;el('diaVal').textContent=dateLabel(dayN);el('hora').value=s.hour;}
@@ -353,7 +375,46 @@ var LOCS=[
  {n:"Valle de Moinhos (PT)",lat:39.210,lon:-8.774,tz:0,dst:true}
 ];
 var LOC=LOCS[0], LAT=LOC.lat*Math.PI/180, LON=LOC.lon;   /* emplazamiento activo (Gorraiz por defecto) */
-if(el('emplaz'))LOCS.forEach(function(L,i){var o=document.createElement('option');o.value=i;o.textContent=L.n;el('emplaz').appendChild(o);});  /* rellena el <select> (LOCS ya definido) */
+/* ---- WIDGET de emplazamiento: presets + búsqueda (OSM/Nominatim) + mapa mundi (Leaflet) ---- */
+var emap=null, emarker=null, epick=null;
+function ensureEmap(){
+  if(!window.L)return;
+  if(!emap){
+    emap=L.map('emplazMap',{worldCopyJump:true}).setView([LOC.lat,LOC.lon],4);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{subdomains:'abcd',maxZoom:18,attribution:'© OpenStreetMap · © CARTO'}).addTo(emap);
+    emarker=L.marker([LOC.lat,LOC.lon]).addTo(emap);
+    emap.on('click',function(e){setPick(e.latlng.lat,e.latlng.lng,'('+e.latlng.lat.toFixed(4)+', '+e.latlng.lng.toFixed(4)+')');});
+  }
+  setTimeout(function(){emap.invalidateSize();},90);
+}
+function setPick(lat,lon,name){epick={lat:lat,lon:lon,name:name}; if(emarker)emarker.setLatLng([lat,lon]); el('emplazPick').textContent='Elegido: '+name+'  ·  '+lat.toFixed(4)+', '+lon.toFixed(4);}
+function openEmplaz(){el('emplazModal').style.display='flex'; ensureEmap();}
+function closeEmplaz(){el('emplazModal').style.display='none';}
+function doSearch(){
+  var q=(el('emplazSearch').value||'').trim(); if(!q)return;
+  el('emplazResults').textContent='Buscando…';
+  fetch('https://nominatim.openstreetmap.org/search?format=json&limit=6&q='+encodeURIComponent(q))
+    .then(function(r){return r.json();})
+    .then(function(arr){
+      if(!arr||!arr.length){el('emplazResults').textContent='Sin resultados.';return;}
+      el('emplazResults').innerHTML='';
+      arr.forEach(function(it){
+        var b=document.createElement('button');
+        b.style.cssText='display:block;width:100%;text-align:left;margin:3px 0;padding:7px 9px;background:var(--card2);color:var(--tx);border:1px solid var(--line2);border-radius:7px;cursor:pointer;font:inherit;font-size:12px';
+        b.textContent=it.display_name;
+        b.onclick=function(){var la=+it.lat,lo=+it.lon; setPick(la,lo,(it.display_name||'').split(',')[0]); if(emap)emap.setView([la,lo],10);};
+        el('emplazResults').appendChild(b);
+      });
+    })
+    .catch(function(){el('emplazResults').textContent='Error de búsqueda (¿sin conexión?).';});
+}
+el('btnEmplaz').onclick=openEmplaz;
+el('emplazClose').onclick=closeEmplaz;
+el('emplazModal').onclick=function(e){if(e.target===this)closeEmplaz();};
+el('emplazGo').onclick=doSearch;
+el('emplazSearch').onkeydown=function(e){if(e.key==='Enter'){e.preventDefault();doSearch();}};
+el('emplazUse').onclick=function(){if(epick)applyLoc(epick.name,epick.lat,epick.lon,null,false); closeEmplaz();};
+LOCS.forEach(function(L0){var b=document.createElement('button');b.style.cssText='padding:5px 9px;font-size:12px;background:var(--card2);color:var(--tx);border:1px solid var(--line2);border-radius:7px;cursor:pointer';b.textContent=L0.n;b.onclick=function(){applyLoc(L0.n,L0.lat,L0.lon,L0.tz,L0.dst);closeEmplaz();};el('emplazPresets').appendChild(b);});
 var dayN=172;                                     /* día del año (1-365); declinación = declOf(dayN) */
 var AXIS_MAX=55;                                  /* tope mecanico (deg): -55 Este / +55 Oeste */
 var PITCH=6.0, CHORD=2.382, GCR=CHORD/PITCH;      /* dos filas -> ground cover ratio */
