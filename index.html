@@ -412,8 +412,8 @@ function step(dt){
   }else{ tgt=lowE?s.angle:trk.R; }
   tgt=Math.max(lo,Math.min(hi,tgt));                  /* acotar a la banda de viento */
   var err=tgt-s.angle;
-  if(reduce)s.angle=tgt; else s.angle+=Math.sign(err)*Math.min(Math.abs(err),SLEW_DPS*dt);
-  s.target=tgt; cur.moving=Math.abs(err)>0.3 || (mode==='manual'&&jog!==0&&wind<=60); if(wind>60||mode==='manual')s.bt=false;
+  if(reduce||playing)s.angle=tgt; else s.angle+=Math.sign(err)*Math.min(Math.abs(err),SLEW_DPS*dt);   /* en Play el seguidor SIGUE al sol (snap al objetivo), como el slider en auto: a tiempo comprimido el giro real (0,17°/s) no alcanza */
+  s.target=tgt; cur.moving=Math.abs(err)>0.3 || (mode==='manual'&&jog!==0&&wind<=60) || (playing&&Math.abs(err)>0.01); if(wind>60||mode==='manual')s.bt=false;
   /* --- FV (MPPT + AOI): el AOI usa el ÁNGULO REAL del seguidor (no el ideal),
      así en manual fuera de sol cae la captación --- */
   var P=solarPos(s.hour);
