@@ -3,18 +3,27 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DTwin · seguidor + TCU</title>
+<meta name="theme-color" content="#0B0F14">
+<link rel="icon" href="favicon.svg">
+<title>Gemelo Digital TCU — Seguidor + TCU</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 <style>
   :root{
-    --bg:#0c141d; --panel:#15202b; --card:#1b2a38; --card2:#15212d;
-    --line:#26384a; --line2:#32485d;
-    --tx:#e6edf3; --tx2:#90a3b5; --tx3:#5e7388;
-    --accent:#2f86d6; --ok:#37b87c; --warn:#e0a52b; --danger:#e2574c; --sun:#f0a93b;
+    /* Estándar de la casa Factiun */
+    --void:#0B0F14; --panel-2:#0F151D; --text:#E7EEF4; --muted:#8093A4; --radius:14px;
+    --display:'Space Grotesk',var(--sans);
+    /* Tokens base de la app (aliasados a los de la casa) */
+    --bg:var(--void); --panel:#121922; --card:var(--panel-2); --card2:#15212d;
+    --line:#23303D; --line2:#32485d;
+    --tx:var(--text); --tx2:var(--muted); --tx3:#5e7388;
+    --accent:#36D399; --ok:#37b87c; --warn:#e0a52b; --danger:#e2574c; --sun:#f0a93b;
     --amber:#EF9F27; --green:#7bbb34; --blue:#3aa0ff;
-    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
-    --sans:ui-sans-serif,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:'IBM Plex Mono',ui-monospace,monospace;
+    --sans:'IBM Plex Sans',system-ui,sans-serif;
   }
   *{box-sizing:border-box}
   html,body{margin:0;height:100%}
@@ -77,10 +86,21 @@
     .lbl3d{font-size:9.5px;padding:2px 6px}
     .chip{min-width:46%}
   }
+
+  /* Chrome estándar Factiun */
+  .app-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:9px 16px;background:var(--panel-2);border-bottom:1px solid var(--line);font-family:var(--sans);flex:none}
+  .app-bar .back{color:var(--muted);text-decoration:none;font:600 13px/1 var(--sans);padding:6px 10px;border:1px solid var(--line);border-radius:10px;white-space:nowrap}
+  .app-bar .back:hover{color:var(--text);border-color:var(--accent)}
+  .app-bar h1{margin:0;font:700 17px/1.1 var(--display);color:var(--text)}
+  .app-bar .sub{color:var(--muted);font-size:12.5px;margin:0 auto 0 0}
+  .app-bar .brand{color:var(--accent);font:700 14px/1 var(--display);letter-spacing:.04em}
+  .app-foot{padding:10px 16px;text-align:center;color:var(--muted);font:400 12px/1.5 var(--sans);border-top:1px solid var(--line);background:var(--panel-2);flex:none}
+  .app-foot a{color:var(--accent);text-decoration:none}.app-foot a:hover{text-decoration:underline}
 </style>
 </head>
 <body>
 <div class="app">
+  <header class="app-bar"><a class="back" href="https://imoriana3.github.io/proyectos/">← Panel</a><h1>Gemelo Digital TCU</h1><span class="sub">Seguidor 1V bífila + TCU SUNNER</span><span class="brand">Factiun</span></header>
   <nav>
     <span class="brand"><span class="dot"></span>D<b>Twin</b></span>
     <select id="equipo"></select>
@@ -141,6 +161,7 @@
       <button id="btnTapa">⧉ Quitar envolvente</button>
     </div>
   </div>
+  <footer class="app-foot">Factiun · Gemelo Digital TCU — <a href="https://imoriana3.github.io/proyectos/">Panel de Proyectos</a></footer>
 </div>
 
 <script>
