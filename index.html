@@ -11,6 +11,7 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="seguidor.js?v=1"></script><!-- FUENTE ÚNICA del seguidor (compartida con Cobertura 3D) -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
@@ -777,85 +778,47 @@ function buildTracker(wrap){
           {z:filaZ+6,xs:6},{z:filaZ+12,xs:6},             // bifila DERECHA (+Z), 6 m al norte
           {z:-filaZ-6,xs:6},{z:-filaZ-12,xs:6}];          // bifila IZQUIERDA (-Z), 6 m al norte
   var filas=[], dampers=[];   /* amortiguadores articulados (se reajustan cada frame en el bucle) */
-  for(var ti=0;ti<TR.length;ti++){ var zc=TR[ti].z, xs=TR[ti].xs;
-    /* COLUMNA cuadrada + placa base + CUNA en U (forma de C) que cuna el tubo cuadrado */
+  /* SEGUIDOR desde la FUENTE ÚNICA (seguidor.js, compartida con Cobertura 3D): módulos bifaciales,
+     correas omega + abarcón, 3 cajas + leapfrog, slew con corona twin en ambas vigas, TCU + chapas. */
+  var SG=Seguidor.materials(THREE);
+  SG.glass.map=ptex; SG.glass.emissiveMap=ptex; SG.glass.emissive=new THREE.Color(0x2b333d); SG.glass.emissiveIntensity=0.32; SG.glass.needsUpdate=true;   // células FV + cara TRASERA bifacial
+  var WEST={0:1,3:1,4:1};                                                                      // vigas del MOTOR (oeste): central[0] + una de cada par lateral
+  var hl=null, box=null;
+  for(var ti=0;ti<TR.length;ti++){ var zc=TR[ti].z, xs=TR[ti].xs, west=!!WEST[ti];
+    /* COLUMNA + pillow-block (rodamiento) por poste */
     for(var pi=0;pi<piersX.length;pi++){var px=piersX[pi]+xs;
       var col=new THREE.Mesh(new THREE.BoxGeometry(0.13,2.0,0.13),steel);col.position.set(px,1.0,zc);col.castShadow=true;sc.add(col);
-      // RODAMIENTO (pillow-block): pedestal atornillado al poste + collar redondo donde gira la viga de torsión
       var ped=new THREE.Mesh(new THREE.BoxGeometry(0.22,0.12,0.30),silver);ped.position.set(px,1.94,zc);ped.castShadow=true;sc.add(ped);
       var brg=new THREE.Mesh(new THREE.CylinderGeometry(0.10,0.10,0.18,18),silver);brg.rotation.z=Math.PI/2;brg.position.set(px,2.0,zc);brg.castShadow=true;sc.add(brg);
       var bo1=new THREE.Mesh(new THREE.CylinderGeometry(0.014,0.014,0.14,8),dark2);bo1.position.set(px-0.085,1.94,zc+0.145);sc.add(bo1);
       var bo2=new THREE.Mesh(new THREE.CylinderGeometry(0.014,0.014,0.14,8),dark2);bo2.position.set(px+0.085,1.94,zc+0.145);sc.add(bo2);
-      // (el amortiguador articulado se crea más abajo, cuando ya existe el grupo 'g' de la fila)
     }
     var g=new THREE.Group();g.position.set(xs,2,zc);
-    var eje=new THREE.Mesh(new THREE.BoxGeometry(span,0.12,0.12),steel);g.add(eje);   // TUBO/VIGA DE TORSIÓN CUADRADO 120 mm
-    /* AMORTIGUADOR articulado en el penúltimo soporte a NORTE (-24) y a SUR (+24): un extremo FIJO al
-       soporte, el otro a un lateral de la viga (hijo de 'g' -> gira con el tubo) => se alarga/acorta */
+    /* piezas que BASCULAN (spin) -> hijas de 'g'; slew FIJO -> grupo aparte. Sin soporte/bracket (los postes ya sujetan) ni antena (pendiente per-frame). */
+    var beam=Seguidor.buildBeam(THREE,{west:west,materials:SG,detail:'full',skip:{soporte:1,bracket:1,antena:1,antenatip:1}});
+    g.add(beam.spin);
+    var slew=new THREE.Group();slew.position.set(xs,2,zc);slew.add(beam.static);sc.add(slew);
+    /* capa de NIEVE por módulo (de los centros que devuelve la fuente) */
+    for(var mc=0;mc<beam.modCols.length;mc++){var cc=beam.modCols[mc];
+      var cap=new THREE.Mesh(new THREE.BoxGeometry(modW-0.04,0.05,modH-0.04),snowMat);cap.position.set(cc.x,off+0.03,cc.z);cap.castShadow=true;cap.visible=false;g.add(cap);snowCaps.push(cap);}
+    /* AMORTIGUADOR articulado en ±24: pie FIJO al poste, otro extremo en la viga (gira con 'g') => se alarga/acorta */
     [-24,24].forEach(function(pbx){ if(piersX.indexOf(pbx)<0)return; var pxx=pbx+xs, dy0=-0.15, dz0=0.28;
-      var Bp=new THREE.Vector3(pxx,1.05,zc+0.10);                                                  // PIE anclado al POSTE (soporte)
+      var Bp=new THREE.Vector3(pxx,1.05,zc+0.10);
       var body=new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,1,14),dark2);body.castShadow=true;sc.add(body);
       var rodd=new THREE.Mesh(new THREE.CylinderGeometry(0.022,0.022,1,10),silver);sc.add(rodd);
-      var eB=new THREE.Mesh(new THREE.CylinderGeometry(0.045,0.045,0.06,10),steel);eB.position.copy(Bp);sc.add(eB);     // rótula fija
-      var eT=new THREE.Mesh(new THREE.CylinderGeometry(0.045,0.045,0.06,10),steel);eT.position.set(pbx,dy0,dz0);g.add(eT); // rótula en la viga (gira con el tubo)
+      var eB=new THREE.Mesh(new THREE.CylinderGeometry(0.045,0.045,0.06,10),steel);eB.position.copy(Bp);sc.add(eB);
+      var eT=new THREE.Mesh(new THREE.CylinderGeometry(0.045,0.045,0.06,10),steel);eT.position.set(pbx,dy0,dz0);g.add(eT);
       dampers.push({px:pxx,zc:zc,dy0:dy0,dz0:dz0,B:Bp,body:body,rod:rodd});
     });
-    /* CORREAS = travesaños PERPENDICULARES sobre el tubo, uno por módulo (el módulo apoya encima) */
-    var purlY=0.085, purlZ=modH*0.96;   /* correas APOYADAS sobre la viga de torsión (antes flotaban) */
-    /* CORREAS en los HUECOS entre módulos (en los bordes): N+1 por ala (una más que
-       módulos); cada correa interior sujeta los DOS módulos contiguos */
-    for(var sgn=1;sgn>=-1;sgn-=2){
-      for(var b=0;b<=modsPerStr;b++){var bx=sgn*(gapDrive/2+b*pitchX);
-        var pur=new THREE.Mesh(new THREE.BoxGeometry(0.05,0.05,purlZ),fmat);pur.position.set(bx,purlY,0);g.add(pur);}    // correa en el borde
-      for(var m=0;m<modsPerStr;m++){var cx=sgn*(gapDrive/2+(m+0.5)*pitchX);
-        var frm=new THREE.Mesh(new THREE.BoxGeometry(modW,0.045,modH),frameMat);frm.position.set(cx,off-0.004,0);frm.castShadow=true;frm.receiveShadow=true;g.add(frm);   // marco plateado (proyecta sombra)
-        var pa=new THREE.Mesh(new THREE.BoxGeometry(modW-0.05,0.05,modH-0.05),glass);pa.position.set(cx,off,0);pa.castShadow=true;pa.receiveShadow=true;g.add(pa);     // células oscuras: proyectan Y reciben sombra (sombreado entre filas)
-        var cap=new THREE.Mesh(new THREE.BoxGeometry(modW-0.04,0.05,modH-0.04),snowMat);cap.position.set(cx,off+0.03,0);cap.castShadow=true;cap.visible=false;g.add(cap);snowCaps.push(cap);}}  // capa de nieve (oculta hasta que nieva)
-    /* CABLEADO de string MÓDULO A MÓDULO (+ de uno a − del siguiente), rojo, con caída */
-    var cabMatF=new THREE.MeshStandardMaterial({color:0xc0392b,roughness:0.6});
-    var jbMat=new THREE.MeshStandardMaterial({color:0x101216,roughness:0.7});
-    var jbY=off-0.05, jbZ=modH*0.30;
-    for(var sw=1;sw>=-1;sw-=2){for(var mm=0;mm<modsPerStr;mm++){var mx=sw*(gapDrive/2+(mm+0.5)*pitchX);
-      var jb=new THREE.Mesh(new THREE.BoxGeometry(0.10,0.05,0.16),jbMat);jb.position.set(mx,jbY,jbZ);g.add(jb);   // caja de conexiones
-      if(mm<modsPerStr-1){var mx2=sw*(gapDrive/2+(mm+1.5)*pitchX);
-        var a=new THREE.Vector3(mx,jbY-0.02,jbZ+0.06), b=new THREE.Vector3(mx2,jbY-0.02,jbZ-0.06);              // + -> - del siguiente
-        var mid=a.clone().lerp(b,0.5);mid.y-=0.10;
-        g.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([a,mid,b]),14,0.012,6,false),cabMatF));}}}
+    if(west&&ti===0){ hl=sprite(0x2f86d6,0.7); hl.position.set(1.4,-0.22,0); g.add(hl); box=beam.spin; }   // glow azul para el pulso del bucle
     sc.add(g);filas.push(g);
   }
   var pg=filas[0], pg2=filas[1];
-  /* EJE DE TRANSMISIÓN: barra horizontal (Z) que une las dos filas por el centro */
-  var ejeT=new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,2*filaZ,12),steel);ejeT.rotation.x=Math.PI/2;ejeT.position.set(0,2,0);sc.add(ejeT);
-  /* SLEW DRIVE: reductora azul abrazada al tubo + MOTOR = cilindro horizontal que sale
-     HACIA FUERA del tracker (−Z). Fijo/aplomado, el tubo gira por dentro. */
-  var blue=new THREE.MeshStandardMaterial({color:0x2f5fb0,roughness:0.4,metalness:0.4});
-  var dw=new THREE.Group();dw.position.set(0,2,-filaZ);sc.add(dw);
-  var flange=new THREE.Mesh(new THREE.CylinderGeometry(0.25,0.25,0.16,24),blue);flange.rotation.z=Math.PI/2;flange.castShadow=true;dw.add(flange);   // corona slew (disco alrededor del tubo)
-  var gear=new THREE.Mesh(new THREE.BoxGeometry(0.3,0.36,0.26),blue);gear.position.set(0,-0.04,0);gear.castShadow=true;dw.add(gear);                  // cuerpo reductora (worm)
-  var mneck=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,0.12,14),blue);mneck.rotation.x=Math.PI/2;mneck.position.set(0,-0.04,-0.20);dw.add(mneck); // cuello
-  var motor=new THREE.Mesh(new THREE.CylinderGeometry(0.085,0.085,0.40,18),dark2);motor.rotation.x=Math.PI/2;motor.position.set(0,-0.04,-0.46);motor.castShadow=true;dw.add(motor); // MOTOR horizontal hacia fuera (proporcionado)
-  var mcap=new THREE.Mesh(new THREE.CylinderGeometry(0.092,0.092,0.05,18),blue);mcap.rotation.x=Math.PI/2;mcap.position.set(0,-0.04,-0.68);dw.add(mcap); // tapa
-  /* TCU abrazada a la VIGA DE TORSIÓN (gira con ella), desplazada hacia el NORTE
-     (+X), lejos del motor central; cartel FACTIUN mirando al SUELO */
-  var tcuMat=new THREE.MeshStandardMaterial({color:0x232f3b,roughness:0.5,metalness:0.3});
-  var xN=1.4;                                                                           // junto al motor (donde indica la imagen)
-  var brk=new THREE.Mesh(new THREE.BoxGeometry(0.46,0.07,0.30),silver);brk.position.set(xN,-0.05,0);pg2.add(brk);        // abrazadera a la viga OESTE
-  var box=new THREE.Mesh(new THREE.BoxGeometry(0.5,0.26,0.36),tcuMat);box.position.set(xN,-0.22,0);pg2.add(box);         // TCU colgando de la viga OESTE (+Z)
-  var sign=new THREE.Mesh(new THREE.PlaneGeometry(0.46,0.2),new THREE.MeshBasicMaterial({map:factiunTex()}));
-  sign.rotation.x=Math.PI/2;sign.position.set(xN,-0.351,0);pg2.add(sign);                                                 // cara inferior, al suelo
-  var hl=sprite(0x2f86d6,0.7);hl.position.set(xN,-0.22,0);pg2.add(hl);
-  /* MISMAS PIEZAS PARA LAS DOS BIFILAS LATERALES: eje de transmisión (une sus dos filas)
-     + TCU colgada de su viga OESTE (+Z), hija de la fila -> gira con el panel. */
-  [{w:3,e:2},{w:4,e:5}].forEach(function(p){
-    var wf=filas[p.w], wz=wf.position.z, ez=filas[p.e].position.z, fx=wf.position.x;
-    var et=new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,Math.abs(wz-ez),12),steel);
-    et.rotation.x=Math.PI/2;et.position.set(fx,2,(wz+ez)/2);sc.add(et);                                                    // eje de transmisión
-    var b1=new THREE.Mesh(new THREE.BoxGeometry(0.46,0.07,0.30),silver);b1.position.set(xN,-0.05,0);wf.add(b1);            // abrazadera
-    var b2=new THREE.Mesh(new THREE.BoxGeometry(0.5,0.26,0.36),tcuMat);b2.position.set(xN,-0.22,0);wf.add(b2);             // TCU
-    var s2=new THREE.Mesh(new THREE.PlaneGeometry(0.46,0.2),new THREE.MeshBasicMaterial({map:factiunTex()}));
-    s2.rotation.x=Math.PI/2;s2.position.set(xN,-0.351,0);wf.add(s2);                                                       // cartel FACTIUN al suelo
-    var h2=sprite(0x2f86d6,0.7);h2.position.set(xN,-0.22,0);wf.add(h2);                                                    // glow
-  });
+  /* EJES DE TRANSMISIÓN: unen las dos vigas de cada bifila por el centro (Z) */
+  [[0,1],[3,2],[4,5]].forEach(function(pr){ var A=TR[pr[0]], B=TR[pr[1]];
+    var et=new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,Math.abs(A.z-B.z),12),steel);
+    et.rotation.x=Math.PI/2;et.position.set(A.xs,2,(A.z+B.z)/2);sc.add(et); });
+  if(!hl){ hl=sprite(0x2f86d6,0.7); hl.position.set(1.4,-0.22,0); filas[0].add(hl); }   // garantía: el bucle usa L.hl
   /* flecha de VIENTO (visual): flota sobre el campo, gira con la brújula y cambia
      de color/tamaño con la velocidad. No altera la consigna (la hora decide el lado). */
   var windGrp=new THREE.Group(); windGrp.position.set(0,24,0); windGrp.visible=false; sc.add(windGrp);
