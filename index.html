@@ -832,7 +832,7 @@ function buildTracker(wrap){
   var pg=filas[0], pg2=filas[1];
   /* EJES DE TRANSMISIÓN: unen las dos vigas de cada bifila por el centro (Z) */
   [[0,1],[3,2],[4,5]].forEach(function(pr){ var A=TR[pr[0]], B=TR[pr[1]];
-    var et=new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,Math.abs(A.z-B.z),12),steel);
+    var et=new THREE.Mesh(new THREE.CylinderGeometry(0.03,0.03,Math.abs(A.z-B.z),12),steel);
     et.rotation.x=Math.PI/2;et.position.set(A.xs,2,(A.z+B.z)/2);sc.add(et); });
   if(!hl){ hl=sprite(0x2f86d6,0.7); hl.position.set(1.4,-0.22,0); filas[0].add(hl); }   // garantía: el bucle usa L.hl
   /* flecha de VIENTO (visual): flota sobre el campo, gira con la brújula y cambia
@@ -1221,7 +1221,7 @@ function buildTCU(wrap){
             if(connNat){ var cG=connNat.clone().sub(ctr).applyMatrix4(TM);        // conector dorado (en el frame de la viga)
               /* ANTENA real: cable coax que sale del conector y CUELGA SIEMPRE vertical (grupo anclado al conector que se CONTRARROTA cada frame), rematado en rubber-duck con ferrita. */
               var antGrp=new THREE.Group(); antGrp.position.copy(cG); g.add(antGrp);
-              var cabLen=0.45, ferLen=0.022, duckLen=0.075;   // cable coax más largo: la antena cuelga ~0.55 m bajo el conector
+              var cabLen=0.85, ferLen=0.022, duckLen=0.075;   // cable coax: la antena cuelga ~0.95 m bajo el conector (colgaba poco)
               var cab=new THREE.Mesh(new THREE.CylinderGeometry(0.0026,0.0026,cabLen,8),antMat); cab.position.set(0,-cabLen/2,0); antGrp.add(cab);   // cable coax
               var fer=new THREE.Mesh(new THREE.CylinderGeometry(0.008,0.008,ferLen,12),antMat); fer.position.set(0,-cabLen-ferLen/2,0); antGrp.add(fer);   // ferrita / termorretráctil
               var duck=new THREE.Mesh(new THREE.CylinderGeometry(0.006,0.005,duckLen,12),antMat); duck.castShadow=true; duck.position.set(0,-cabLen-ferLen-duckLen/2,0); antGrp.add(duck);   // antena rubber-duck
