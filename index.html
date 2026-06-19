@@ -795,7 +795,7 @@ function buildTracker(wrap){
     }
     var g=new THREE.Group();g.position.set(xs,2,zc);
     /* piezas que BASCULAN (spin) -> hijas de 'g'; slew FIJO -> grupo aparte. Sin soporte/bracket (los postes ya sujetan) ni antena (pendiente per-frame). */
-    var beam=Seguidor.buildBeam(THREE,{west:west,materials:SG,detail:'full',skip:{soporte:1,bracket:1,antena:1,antenatip:1,tcu:1}});
+    var beam=Seguidor.buildBeam(THREE,{west:west,materials:SG,detail:'full',skip:{soporte:1,bracket:1,antena:1,antenatip:1,tcu:1,tcuchapa:1}});
     g.add(beam.spin);
     var slew=new THREE.Group();slew.position.set(xs,2,zc);slew.add(beam.static);sc.add(slew);
     /* capa de NIEVE por módulo (de los centros que devuelve la fuente) */
