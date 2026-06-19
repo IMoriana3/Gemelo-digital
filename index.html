@@ -795,7 +795,7 @@ function buildTracker(wrap){
     }
     var g=new THREE.Group();g.position.set(xs,2,zc);
     /* piezas que BASCULAN (spin) -> hijas de 'g'; slew FIJO -> grupo aparte. Sin soporte/bracket (los postes ya sujetan) ni antena (pendiente per-frame). */
-    var beam=Seguidor.buildBeam(THREE,{west:west,materials:SG,detail:'full',skip:{soporte:1,bracket:1,antena:1,antenatip:1}});
+    var beam=Seguidor.buildBeam(THREE,{west:west,materials:SG,detail:'full',skip:{soporte:1,bracket:1,antena:1,antenatip:1,tcu:1}});
     g.add(beam.spin);
     var slew=new THREE.Group();slew.position.set(xs,2,zc);slew.add(beam.static);sc.add(slew);
     /* capa de NIEVE por módulo (de los centros que devuelve la fuente) */
@@ -1185,6 +1185,20 @@ function buildTCU(wrap){
         var box=new THREE.Box3().setFromObject(m),sz=new THREE.Vector3();box.getSize(sz);
         var maxd=Math.max(sz.x,sz.y,sz.z);
         if(!isFinite(maxd)||maxd<=0){cadMsg('· CAD: glb vacío/sin geometría — sigue el modelo aprox.');return;}
+        /* TCU REAL (tcu.glb) en las vigas del MOTOR, a escala NATIVA (como cobertura): clon centrado +
+           orientado (_TCUMOUNT) + recoloreado (metalness baja, seta roja), hijo de la viga -> bascula con el tubo. */
+        (function(){ if(!L.filas)return; var ctr=box.getCenter(new THREE.Vector3());
+          var TM=new THREE.Matrix4().makeRotationY(Math.PI/2); TM.multiply(new THREE.Matrix4().makeRotationX(Math.PI)); TM.setPosition(1.4,-0.14,0);
+          [0,3,4].forEach(function(fi){ var g=L.filas[fi]; if(!g)return;
+            var cl=m.clone(true); cl.position.sub(ctr);                          // clon a escala nativa, centrado en su bbox
+            cl.traverse(function(o){ if(!o.isMesh)return; o.castShadow=false; o.receiveShadow=true;
+              var src=(o.material&&o.material.isMaterial)?o.material:null, mm=src?src.clone():new THREE.MeshStandardMaterial({color:0xe8e4dc});
+              if(mm.metalness!=null)mm.metalness=Math.min(mm.metalness,0.18); else mm.metalness=0.15;   // los metales del glb salían NEGROS sin reflejo
+              if(mm.roughness==null||mm.roughness<0.45)mm.roughness=0.6;
+              if(src&&src.name==='mat_1'){mm.color=new THREE.Color(0xcc1417);mm.metalness=0.1;mm.roughness=0.5;}   // la SETA: roja
+              mm.needsUpdate=true; o.material=mm; });
+            var wrap=new THREE.Group(); wrap.add(cl); wrap.applyMatrix4(TM); g.add(wrap); });
+        })();
         var s=3.2/maxd; m.scale.setScalar(s);                                    // STEP en mm -> escena
         box.setFromObject(m);var c=new THREE.Vector3();box.getCenter(c);m.position.sub(c);
         box.setFromObject(m);m.position.y-=box.min.y;                            // apoyar en el suelo
