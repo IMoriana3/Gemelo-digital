@@ -1221,7 +1221,7 @@ function buildTCU(wrap){
             if(connNat){ var cG=connNat.clone().sub(ctr).applyMatrix4(TM);        // conector dorado (en el frame de la viga)
               /* ANTENA real: cable coax que sale del conector y CUELGA SIEMPRE vertical (grupo anclado al conector que se CONTRARROTA cada frame), rematado en rubber-duck con ferrita. */
               var antGrp=new THREE.Group(); antGrp.position.copy(cG); g.add(antGrp);
-              var cabLen=0.13, ferLen=0.022, duckLen=0.075;
+              var cabLen=0.45, ferLen=0.022, duckLen=0.075;   // cable coax más largo: la antena cuelga ~0.55 m bajo el conector
               var cab=new THREE.Mesh(new THREE.CylinderGeometry(0.0026,0.0026,cabLen,8),antMat); cab.position.set(0,-cabLen/2,0); antGrp.add(cab);   // cable coax
               var fer=new THREE.Mesh(new THREE.CylinderGeometry(0.008,0.008,ferLen,12),antMat); fer.position.set(0,-cabLen-ferLen/2,0); antGrp.add(fer);   // ferrita / termorretráctil
               var duck=new THREE.Mesh(new THREE.CylinderGeometry(0.006,0.005,duckLen,12),antMat); duck.castShadow=true; duck.position.set(0,-cabLen-ferLen-duckLen/2,0); antGrp.add(duck);   // antena rubber-duck
