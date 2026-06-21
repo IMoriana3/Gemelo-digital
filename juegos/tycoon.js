@@ -6,10 +6,12 @@
  * (../seguidor.js) y la física solar real del Gemelo Digital (solarPos /
  * trackAngle con backtracking Anderson-Mikofski).
  *
- * Pensado para 3 usos: formación (consejos), team building (ranking por
- * equipos) y ferias/stand (pantalla táctil, partidas cortas).
+ * v0.2 — averías por COMPONENTE (módulo, eje, motor, amortiguador, TCU,
+ * batería) con síntomas, efectos e interacciones reales (amortiguador+viento,
+ * motor que escala a eje, batería que se recupera con sol).
  *
- * Sin dependencias de build: Three.js r128 (CDN) + seguidor.js.
+ * Pensado para 3 usos: formación (síntomas + consejos), team building (ranking
+ * por equipos) y ferias/stand (pantalla táctil, partidas cortas).
  * ==========================================================================*/
 (function () {
   'use strict';
@@ -19,23 +21,14 @@
   var clamp = function (v, a, b) { return Math.max(a, Math.min(b, v)); };
   var D2R = Math.PI / 180, R2D = 180 / Math.PI;
   function fmt(n, d) { return n.toFixed(d == null ? 0 : d).replace('.', ','); }
-  function fmtEur(n) {
-    var s = Math.round(n).toString();
-    return s.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ' €';
-  }
-  function clockOf(h) {
-    var hh = Math.floor(h), mm = Math.floor((h - hh) * 60);
-    return (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;
-  }
+  function fmtEur(n) { return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ' €'; }
+  function clockOf(h) { var hh = Math.floor(h), mm = Math.floor((h - hh) * 60); return (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm; }
 
   /* ===================== física solar (espejo del Gemelo) ===================== */
-  /* Mismas fórmulas que index.html del gemelo-digital, autocontenidas aquí. */
   var AXIS_MAX = 55, CHORD = 2.382, PITCH = 6.0, GCR = CHORD / PITCH;
-  // Emplazamiento por defecto: El Burgo (Zaragoza). Buen recurso solar.
   var LOC = { n: 'El Burgo · Zaragoza', lat: 41.576, lon: -0.798, tz: 1, dst: true };
   var LAT = LOC.lat * D2R, LON = LOC.lon;
-  var dayN = 172;        // 21-jun por defecto (día largo, vistoso)
-  var btOn = true;       // backtracking activado
+  var dayN = 172, btOn = true;
 
   function declOf(N) { return 23.45 * Math.sin(2 * Math.PI * (284 + (N || 1)) / 365) * D2R; }
   function tzOffset(N) { return LOC.tz + ((LOC.dst && N >= 86 && N <= 303) ? 1 : 0); }
@@ -67,27 +60,53 @@
     return { R: Rdeg, bt: bt, el: P.el, cosAOI: cosAOI };
   }
 
-  /* ===================== parámetros de juego ===================== */
-  var NUM = 9;                 // nº de seguidores en la planta
-  var PNOM = 45;              // kWp por seguidor (2 alas · 28 mód · ~0,8 kWp bifacial)
-  var PRICE = 0.12;           // €/kWh
-  var H0 = 5.0, H1 = 21.0;     // ventana horaria simulada (amanecer..anochecer verano)
+  /* ===================== catálogo de AVERÍAS (por componente) ===================== */
+  /* prod  = factor de producción del seguidor mientras dura (0..1)
+   * tracks= si sigue moviéndose (false -> se queda clavado, pierde el sol)
+   * sev   = 'alarm' (rojo) | 'warn' (ámbar)
+   * w     = peso de aparición aleatoria
+   * escalate/escT = degenera en otra avería peor si no se repara a tiempo
+   * windRisk  = sufre daño estructural si pilla viento
+   * selfHeal  = se recupera sola con sol suficiente */
+  var FAULTS = {
+    modulo:  { label: 'Módulo / string roto', icon: '▦', sev: 'warn', cost: 70, prod: 0.5, tracks: true, w: 26,
+               sym: 'Un módulo o string dañado. El seguidor sigue moviéndose pero produce bastante menos.' },
+    eje:     { label: 'Eje bloqueado', icon: '⛔', sev: 'alarm', cost: 120, prod: 0.0, tracks: false, w: 16,
+               sym: 'El seguidor no gira: se queda clavado y va perdiendo el sol según avanza el día.' },
+    motor:   { label: 'Sobrecorriente de motor', icon: '⚡', sev: 'warn', cost: 90, prod: 0.6, tracks: true, w: 16,
+               escalate: 'eje', escT: 12,
+               sym: 'El motor fuerza. Si no se atiende a tiempo, acaba BLOQUEANDO el eje (reparación más cara).' },
+    amort:   { label: 'Amortiguador roto', icon: '✖', sev: 'warn', cost: 80, prod: 1.0, tracks: true, w: 16, windRisk: true,
+               sym: 'Sin amortiguación. Si llega una racha de viento, riesgo de DAÑO ESTRUCTURAL. Repáralo antes del vendaval.' },
+    tcu:     { label: 'Fallo de TCU', icon: '📡', sev: 'alarm', cost: 160, prod: 0.12, tracks: false, w: 12,
+               sym: 'La unidad de control cae: te quedas sin telemetría y el seguidor deja de seguir al sol.' },
+    bateria: { label: 'Batería baja', icon: '🔋', sev: 'warn', cost: 60, prod: 0.35, tracks: false, w: 12, selfHeal: true,
+               sym: 'La TCU se queda sin energía y no puede mover el seguidor. Se recupera con sol… o cambias la batería.' }
+  };
+  function pickFault() {
+    var keys = Object.keys(FAULTS), tot = 0, i;
+    for (i = 0; i < keys.length; i++) tot += FAULTS[keys[i]].w;
+    var r = Math.random() * tot;
+    for (i = 0; i < keys.length; i++) { r -= FAULTS[keys[i]].w; if (r <= 0) return keys[i]; }
+    return keys[0];
+  }
 
-  // Dificultades: duración del día (s) + ritmo de averías + nº de vendavales + nubes
+  /* ===================== parámetros de juego ===================== */
+  var NUM = 9, PNOM = 45, PRICE = 0.12, H0 = 5.0, H1 = 21.0;
+  var WIND_STRUCT = 200;   // coste extra por daño estructural (amortiguador + viento)
   var DIFFS = {
-    facil:  { lbl: 'Fácil · feria',     dur: 120, failMean: 16, winds: 1, maxCloud: 0.35, repair: 80,  windPen: 250, caja0: 600 },
-    normal: { lbl: 'Normal · equipo',   dur: 100, failMean: 10, winds: 2, maxCloud: 0.55, repair: 90,  windPen: 350, caja0: 500 },
-    dificil:{ lbl: 'Difícil · reto',    dur: 90,  failMean: 6.5, winds: 3, maxCloud: 0.7,  repair: 110, windPen: 500, caja0: 450 }
+    facil:  { lbl: 'Fácil · feria',   dur: 120, failMean: 14, winds: 1, maxCloud: 0.35, windPen: 250, caja0: 700 },
+    normal: { lbl: 'Normal · equipo', dur: 100, failMean: 9,  winds: 2, maxCloud: 0.55, windPen: 350, caja0: 600 },
+    dificil:{ lbl: 'Difícil · reto',  dur: 90,  failMean: 6,  winds: 3, maxCloud: 0.7,  windPen: 500, caja0: 500 }
   };
 
   /* ===================== estado del juego ===================== */
-  var G = null;   // objeto de partida (se crea en startGame)
+  var G = null;
   function newGameState(diffKey, team) {
     var d = DIFFS[diffKey];
     return {
       diffKey: diffKey, diff: d, team: team || 'Equipo',
-      running: false, t: 0, h: H0,
-      caja: d.caja0, ingresos: 0, costes: 0,
+      running: false, t: 0, h: H0, caja: d.caja0, ingresos: 0, costes: 0,
       realKWh: 0, idealKWh: 0, kW: 0,
       cloud: 0, cloudTarget: 0, cloudTimer: 0,
       failTimer: d.failMean * (0.5 + Math.random()),
@@ -98,20 +117,21 @@
 
   /* ===================== Three.js: escena ===================== */
   var THREE = window.THREE;
-  var renderer, scene, camera, sun, sunSprite, sky;
+  var renderer, scene, camera, sun, sunSprite;
   var trackers = [], hitboxes = [];
   var ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
   var SKY_NIGHT = new THREE.Color(0x0a1422), SKY_DUSK = new THREE.Color(0x8a5236),
       SKY_DAY = new THREE.Color(0x4f78a6), SKY_OVC = new THREE.Color(0x8a929b);
   var view = { theta: 0.95, phi: 0.82, radius: 95, target: new THREE.Vector3(0, 2, 0) };
+  // variables solares por frame (compartidas con trackerKW)
+  var _sx = 0, _sz = 0, _irr = 0, _skyT = 1, _trk = { R: 0, cosAOI: 0, el: 0, bt: false };
 
   function panelTex() {
     var W = 96, H = 192, c = document.createElement('canvas'); c.width = W; c.height = H;
     var x = c.getContext('2d'); x.fillStyle = '#0a1019'; x.fillRect(0, 0, W, H);
     var nx = 6, ny = 12, cw = W / nx, ch = H / ny, gap = 1.3;
     for (var iy = 0; iy < ny; iy++) for (var ix = 0; ix < nx; ix++) {
-      var L = 7.5 + Math.random() * 3.5;
-      x.fillStyle = 'hsl(214,48%,' + L.toFixed(1) + '%)';
+      var L = 7.5 + Math.random() * 3.5; x.fillStyle = 'hsl(214,48%,' + L.toFixed(1) + '%)';
       x.fillRect(ix * cw + gap, iy * ch + gap, cw - 2 * gap, ch - 2 * gap);
     }
     var t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4; return t;
@@ -132,15 +152,18 @@
     grd.addColorStop(0, 'rgba(255,255,255,1)'); grd.addColorStop(0.25, 'rgba(255,255,255,.85)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
     g.fillStyle = grd; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c);
   }
-  function warnTex() {
+  var GLOW = null, _faultTex = {};
+  function faultTexFor(key) {
+    if (_faultTex[key]) return _faultTex[key];
+    var f = FAULTS[key], col = f.sev === 'alarm' ? '#e2574c' : '#e0a52b';
     var c = document.createElement('canvas'); c.width = c.height = 128; var x = c.getContext('2d');
     x.clearRect(0, 0, 128, 128);
-    x.fillStyle = '#e2574c'; x.beginPath(); x.moveTo(64, 14); x.lineTo(116, 110); x.lineTo(12, 110); x.closePath(); x.fill();
-    x.strokeStyle = '#fff'; x.lineWidth = 6; x.stroke();
-    x.fillStyle = '#fff'; x.font = 'bold 64px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('!', 64, 74);
-    return new THREE.CanvasTexture(c);
+    x.fillStyle = col; x.beginPath(); x.arc(64, 64, 52, 0, 6.2832); x.fill();
+    x.strokeStyle = '#fff'; x.lineWidth = 7; x.stroke();
+    x.fillStyle = '#fff'; x.font = '60px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.fillText(f.icon, 64, 72);
+    return (_faultTex[key] = new THREE.CanvasTexture(c));
   }
-  var GLOW = null, WARN = null;
   function sprite(map, color, size) {
     var m = new THREE.SpriteMaterial({ map: map, color: color, transparent: true, depthWrite: false });
     var sp = new THREE.Sprite(m); sp.scale.set(size, size, 1); return sp;
@@ -157,16 +180,15 @@
     canvasWrap.appendChild(renderer.domElement);
 
     scene.add(new THREE.AmbientLight(0x4a5e72, 0.75));
-    var hemi = new THREE.HemisphereLight(0xbfd4ea, 0x47502f, 0.45); scene.add(hemi);
+    scene.add(new THREE.HemisphereLight(0xbfd4ea, 0x47502f, 0.45));
     sun = new THREE.DirectionalLight(0xfff2d8, 1.0); scene.add(sun); scene.add(sun.target);
     sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
     var shc = sun.shadow.camera; shc.left = -70; shc.right = 70; shc.top = 70; shc.bottom = -70; shc.near = 1; shc.far = 520; shc.updateProjectionMatrix();
     sun.shadow.bias = -0.0006;
 
-    GLOW = glowTex(); WARN = warnTex();
+    GLOW = glowTex();
     sunSprite = sprite(GLOW, 0xffe6a0, 26); scene.add(sunSprite);
 
-    // suelo
     var gtex = grassTex(); gtex.repeat.set(60, 60);
     var ground = new THREE.Mesh(new THREE.PlaneGeometry(700, 700),
       new THREE.MeshStandardMaterial({ map: gtex, color: 0xc2d0b2, roughness: 1 }));
@@ -178,7 +200,7 @@
   }
 
   function buildPlant() {
-    var dims = Seguidor.DIMS, tubeLen = dims.span;       // 'largo'
+    var dims = Seguidor.DIMS, tubeLen = dims.span;
     var SG = Seguidor.materials(THREE);
     var ptex = panelTex();
     SG.glass.map = ptex; SG.glass.emissiveMap = ptex; SG.glass.emissive = new THREE.Color(0x2b333d); SG.glass.emissiveIntensity = 0.28; SG.glass.needsUpdate = true;
@@ -193,28 +215,22 @@
       var g = new THREE.Group(); g.position.set(0, 2, z); g.add(beam.spin); scene.add(g);
       var slew = new THREE.Group(); slew.position.set(0, 2, z); slew.add(beam.static); scene.add(slew);
 
-      // postes simples a lo largo del tubo
       for (var px = -tubeLen / 2 + 3; px <= tubeLen / 2 - 3; px += 9) {
         var col = new THREE.Mesh(new THREE.BoxGeometry(0.14, 2.0, 0.14), steel);
         col.position.set(px, 1.0, z); col.castShadow = true; scene.add(col);
       }
 
-      // hitbox invisible (clic/tap fácil sobre todo el seguidor)
       var hb = new THREE.Mesh(new THREE.BoxGeometry(tubeLen, 3.2, 3.4),
         new THREE.MeshBasicMaterial({ visible: false }));
       hb.position.set(0, 2, z); hb.userData.idx = i; scene.add(hb); hitboxes.push(hb);
 
-      trackers.push({ g: g, z: z, failed: false, marker: null, angle: 0, target: 0, failAngle: 0 });
+      trackers.push({ g: g, z: z, fault: null, faultT: 0, healT: 0, marker: null, angle: 0, frozenAngle: 0 });
     }
   }
 
-  /* ===================== posición del sol en el mundo ===================== */
   function sunWorldDir(h) {
     var P = solarPos(h);
-    var cx = Math.cos(P.el) * Math.cos(P.az);   // +X = Sur
-    var cz = Math.cos(P.el) * Math.sin(P.az);   // +Z = Oeste
-    var cy = Math.sin(P.el);                     // +Y = arriba
-    return new THREE.Vector3(cx, cy, cz);
+    return new THREE.Vector3(Math.cos(P.el) * Math.cos(P.az), Math.sin(P.el), Math.cos(P.el) * Math.sin(P.az));
   }
 
   /* ===================== cámara (órbita + tap) ===================== */
@@ -267,51 +283,86 @@
   }
   function onTrackerTap(idx) {
     var t = trackers[idx];
-    if (t.failed) {
-      if (G.caja < G.diff.repair) { toast('Sin presupuesto para reparar (' + fmtEur(G.diff.repair) + ')', 'warn'); return; }
-      G.caja -= G.diff.repair; G.costes += G.diff.repair;
-      t.failed = false; if (t.marker) { scene.remove(t.marker); t.marker = null; }
-      toast('🔧 Seguidor ' + (idx + 1) + ' reparado · −' + fmtEur(G.diff.repair), 'ok');
-      tip('reparar', 'Cada minuto de avería = energía perdida. Repararlo rápido sale rentable.');
-    } else {
-      var kw = trackerKW(idx);
-      toast('Seguidor ' + (idx + 1) + ' · ' + fmt(kw, 1) + ' kW · OK', 'info', 1400);
-    }
+    if (t.fault) openFaultPopup(idx);
+    else toast('Seguidor ' + (idx + 1) + ' · ' + fmt(trackerKW(idx), 1) + ' kW · OK', 'info', 1300);
   }
 
-  /* ===================== producción ===================== */
-  var _trk = { cosAOI: 0, el: 0 }, _irr = 0, _skyT = 1;
+  /* ===================== producción (por seguidor, con su ángulo real) ===================== */
   function trackerKW(idx) {
     var t = trackers[idx];
-    if (t.failed) return 0;
-    var factor = G.safety ? 0.05 : 1;
-    return PNOM * _irr * _skyT * _trk.cosAOI * factor;
+    var pf = t.fault ? FAULTS[t.fault].prod : 1; if (pf <= 0) return 0;
+    var sf = G.safety ? 0.05 : 1;
+    var cosAOI = Math.max(0, _sx * Math.sin(t.angle) + _sz * Math.cos(t.angle));
+    return PNOM * _irr * _skyT * cosAOI * pf * sf;
   }
 
-  /* ===================== eventos ===================== */
-  function spawnFailure() {
-    var healthy = [];
-    for (var i = 0; i < trackers.length; i++) if (!trackers[i].failed) healthy.push(i);
-    if (!healthy.length) return;
-    var idx = healthy[(Math.random() * healthy.length) | 0];
-    var t = trackers[idx];
-    t.failed = true;
-    t.failAngle = (Math.random() * 2 - 1) * 40 * D2R;   // se queda "torcido"
-    var m = sprite(WARN, 0xffffff, 7); m.position.set(0, 6.5, t.z); m.userData.pulse = Math.random() * 6.28;
-    scene.add(m); t.marker = m;
-    toast('⚠ Avería en el seguidor ' + (idx + 1) + ' — ¡tócalo para reparar!', 'warn');
-    tip('averia', 'Un seguidor averiado deja de producir. Tócalo para enviar un técnico.');
+  /* ===================== averías: aplicar / reparar ===================== */
+  function randomHealthy() {
+    var h = []; for (var i = 0; i < trackers.length; i++) if (!trackers[i].fault) h.push(i);
+    return h.length ? h[(Math.random() * h.length) | 0] : -1;
+  }
+  function setFault(idx, key, silent) {
+    var t = trackers[idx]; if (t.fault || idx < 0) return;
+    var f = FAULTS[key];
+    t.fault = key; t.faultT = 0; t.healT = 0; if (!f.tracks) t.frozenAngle = t.angle;
+    if (t.marker) scene.remove(t.marker);
+    var m = sprite(faultTexFor(key), 0xffffff, 7); m.position.set(0, 6.6, t.z);
+    m.userData.pulse = Math.random() * 6.28; scene.add(m); t.marker = m;
+    if (!silent) {
+      toast((f.sev === 'alarm' ? '⛔' : '⚠') + ' Seguidor ' + (idx + 1) + ': ' + f.label + ' — tócalo', f.sev === 'alarm' ? 'warn' : 'warn');
+      tip('averia', 'Cada avería afecta a un componente distinto. Toca el seguidor para ver el síntoma y repararlo.');
+    }
+  }
+  function clearFault(idx) {
+    var t = trackers[idx]; t.fault = null; t.faultT = 0; t.healT = 0;
+    if (t.marker) { scene.remove(t.marker); t.marker = null; }
+  }
+  function repairTracker(idx) {
+    var t = trackers[idx]; if (!t.fault) return false;
+    var f = FAULTS[t.fault];
+    if (G.caja < f.cost) { toast('Sin presupuesto: ' + f.label + ' cuesta ' + fmtEur(f.cost), 'warn'); return false; }
+    G.caja -= f.cost; G.costes += f.cost;
+    var lbl = f.label; clearFault(idx);
+    toast('🔧 Seguidor ' + (idx + 1) + ': ' + lbl + ' reparado · −' + fmtEur(f.cost), 'ok');
+    tip('reparar', 'Prioriza: una TCU o un eje parado quita mucha más producción que un módulo. Y arregla los amortiguadores ANTES del viento.');
+    return true;
+  }
+  function spawnFault() {
+    var idx = randomHealthy(); if (idx < 0) return;
+    setFault(idx, pickFault());
   }
 
+  /* ===================== viento ===================== */
   function scheduleWinds() {
-    G.windQueue = [];
-    var n = G.diff.winds;
+    G.windQueue = []; var n = G.diff.winds;
     for (var i = 0; i < n; i++) {
       var frac = 0.22 + (i + Math.random() * 0.6) * (0.66 / n);
       G.windQueue.push({ at: clamp(frac, 0.15, 0.92), done: false });
     }
   }
   var WARN_S = 6, GUST_S = 7;
+  function onGustHits() {
+    // 1) daño estructural en seguidores con AMORTIGUADOR roto (aunque haya seguridad)
+    var struct = [];
+    for (var i = 0; i < trackers.length; i++) {
+      if (trackers[i].fault === 'amort') {
+        G.caja -= WIND_STRUCT; G.costes += WIND_STRUCT;
+        clearFault(i); setFault(i, 'eje', true); struct.push(i + 1);
+      }
+    }
+    if (struct.length) toast('🌪️ Daño estructural por amortiguador roto en seguidor ' + struct.join(', ') + ' · −' + fmtEur(WIND_STRUCT * struct.length), 'warn');
+    // 2) si NO está en seguridad: daños generales (averías nuevas + penalización)
+    if (!G.safety) {
+      G.caja -= G.diff.windPen; G.costes += G.diff.windPen;
+      var n = 1 + (Math.random() < 0.6 ? 1 : 0);
+      for (var k = 0; k < n; k++) setFault(randomHealthy(), pickFault(), true);
+      windBanner(true, '🌪️ ¡DAÑOS POR VIENTO! −' + fmtEur(G.diff.windPen), 'bad');
+      toast('No diste a Seguridad a tiempo: daños por viento', 'warn');
+    } else {
+      G.safetyAuto = true;
+      windBanner(true, '🛡️ Planta protegida — racha en curso', 'ok');
+    }
+  }
   function updateWind(dt, frac) {
     if (G.windState === 'idle') {
       for (var i = 0; i < G.windQueue.length; i++) {
@@ -319,25 +370,13 @@
         if (!w.done && frac >= w.at) {
           w.done = true; G.windState = 'warning'; G.windTimer = WARN_S;
           windBanner(true, '💨 ¡VIENTO FUERTE en camino! Pon la planta en SEGURIDAD');
-          tip('viento', 'Con rachas >60 km/h hay que llevar los seguidores a posición de seguridad (planos) para no dañar la estructura.');
+          tip('viento', 'Con rachas fuertes hay que llevar los seguidores a posición de seguridad (planos). Y ojo: un amortiguador roto se daña aunque pongas seguridad.');
           break;
         }
       }
     } else if (G.windState === 'warning') {
       G.windTimer -= dt;
-      if (G.windTimer <= 0) {
-        G.windState = 'gust'; G.windTimer = GUST_S;
-        if (!G.safety) {
-          // daños: penalización + averías
-          G.caja -= G.diff.windPen; G.costes += G.diff.windPen;
-          spawnFailure(); if (Math.random() < 0.6) spawnFailure();
-          windBanner(true, '🌪️ ¡DAÑOS POR VIENTO! −' + fmtEur(G.diff.windPen), 'bad');
-          toast('No diste a Seguridad a tiempo: daños por viento', 'warn');
-        } else {
-          G.safetyAuto = true;
-          windBanner(true, '🛡️ Planta protegida — racha en curso', 'ok');
-        }
-      }
+      if (G.windTimer <= 0) { G.windState = 'gust'; G.windTimer = GUST_S; onGustHits(); }
     } else if (G.windState === 'gust') {
       G.windTimer -= dt;
       if (G.windTimer <= 0) {
@@ -353,70 +392,76 @@
     requestAnimationFrame(loop);
     var dt = lastNow ? Math.min(0.05, (now - lastNow) / 1000) : 0; lastNow = now;
     if (G && G.running) step(dt);
-    // sol/cielo aunque esté pausado, para que se vea bonito
     renderer.render(scene, camera);
   }
-
   function step(dt) {
     G.t += dt;
     var frac = clamp(G.t / G.diff.dur, 0, 1);
     G.h = H0 + (H1 - H0) * frac;
-    var dH = (H1 - H0) * dt / G.diff.dur;   // horas simuladas avanzadas
+    var dH = (H1 - H0) * dt / G.diff.dur;
 
-    // --- sol + cielo ---
-    var dir = sunWorldDir(G.h);
+    // sol
+    var P = solarPos(G.h);
     _trk = trackAngle(G.h);
-    _irr = Math.max(0, Math.sin(Math.max(0, _trk.el)));
-    sun.position.copy(dir.clone().multiplyScalar(240));
-    sun.target.position.set(0, 0, 0);
-    var dayl = clamp(Math.sin(Math.max(0, _trk.el)) * 1.4, 0, 1);
-    sun.intensity = 0.15 + dayl * 0.95;
+    _sx = Math.cos(P.el) * Math.sin(P.az);
+    _sz = Math.max(0, Math.sin(P.el));
+    _irr = Math.max(0, Math.sin(Math.max(0, P.el)));
+    var dir = sunWorldDir(G.h);
+    sun.position.copy(dir.clone().multiplyScalar(240)); sun.target.position.set(0, 0, 0);
+    sun.intensity = 0.15 + clamp(Math.sin(Math.max(0, P.el)) * 1.4, 0, 1) * 0.95;
     sunSprite.position.copy(dir.clone().multiplyScalar(260)); sunSprite.position.y = Math.max(6, sunSprite.position.y);
-    sunSprite.material.opacity = clamp(_trk.el > -0.05 ? 1 : 0, 0, 1);
+    sunSprite.material.opacity = P.el > -0.05 ? 1 : 0;
 
-    // --- nubes (paseo aleatorio suave) ---
+    // nubes
     G.cloudTimer -= dt;
     if (G.cloudTimer <= 0) { G.cloudTimer = 2.5 + Math.random() * 4; G.cloudTarget = Math.random() * G.diff.maxCloud; }
     G.cloud += (G.cloudTarget - G.cloud) * Math.min(1, dt * 0.5);
     _skyT = clamp(1 - G.cloud * 0.8, 0.15, 1);
-    if (G.cloud > 0.45) tip('nubes', 'Las nubes reducen la irradiancia: la producción baja aunque los seguidores apunten bien.');
+    if (G.cloud > 0.45) tip('nubes', 'Las nubes reducen la irradiancia: la producción baja aunque los seguidores apunten perfecto.');
 
-    // color de cielo según elevación + nubes
+    // cielo
     var c = new THREE.Color();
-    if (_trk.el <= 0) c.copy(SKY_NIGHT);
-    else { var k = clamp(Math.sin(_trk.el) * 1.6, 0, 1); c.copy(SKY_DUSK).lerp(SKY_DAY, k); }
+    if (P.el <= 0) c.copy(SKY_NIGHT);
+    else { var kk = clamp(Math.sin(P.el) * 1.6, 0, 1); c.copy(SKY_DUSK).lerp(SKY_DAY, kk); }
     c.lerp(SKY_OVC, (1 - _skyT) * 0.7);
     scene.background.copy(c); if (scene.fog) scene.fog.color.copy(c);
 
-    // --- ángulos de los seguidores ---
+    // seguidores: ángulo + timers de avería
     var baseR = _trk.R * D2R;
     for (var i = 0; i < trackers.length; i++) {
-      var t = trackers[i];
-      t.target = t.failed ? t.failAngle : (G.safety ? 0 : baseR);
-      t.angle += (t.target - t.angle) * Math.min(1, dt * 3.5);
+      var t = trackers[i], f = t.fault ? FAULTS[t.fault] : null;
+      var tgt = (f && !f.tracks) ? t.frozenAngle : (G.safety ? 0 : baseR);
+      t.angle += (tgt - t.angle) * Math.min(1, dt * 3.5);
       t.g.rotation.x = t.angle;
-      if (t.marker) { t.marker.userData.pulse += dt * 5; t.marker.scale.setScalar(6.5 + Math.sin(t.marker.userData.pulse) * 1.2); }
+      if (f) {
+        t.faultT += dt;
+        if (f.escalate && t.faultT >= f.escT) {
+          clearFault(i); setFault(i, f.escalate, true);
+          toast('⛔ Seguidor ' + (i + 1) + ': el motor ha bloqueado el eje', 'warn');
+        } else if (f.selfHeal && _irr * _skyT > 0.5) {
+          t.healT += dt;
+          if (t.healT > 8) { clearFault(i); toast('🔋 Seguidor ' + (i + 1) + ': batería recuperada con el sol', 'ok'); }
+        }
+      }
+      if (t.marker) {
+        t.marker.userData.pulse += dt * 5;
+        t.marker.scale.setScalar(6.6 + Math.sin(t.marker.userData.pulse) * 1.2);
+      }
     }
 
-    // --- producción + economía ---
+    // producción + economía
     var realKW = 0;
     for (var j = 0; j < trackers.length; j++) realKW += trackerKW(j);
     var idealKW = PNOM * _irr * _skyT * _trk.cosAOI * NUM;
-    G.kW = realKW;
-    G.realKWh += realKW * dH;
-    G.idealKWh += idealKW * dH;
-    var ingr = realKW * dH * PRICE;
-    G.caja += ingr; G.ingresos += ingr;
+    G.kW = realKW; G.realKWh += realKW * dH; G.idealKWh += idealKW * dH;
+    var ingr = realKW * dH * PRICE; G.caja += ingr; G.ingresos += ingr;
 
-    // --- averías ---
+    // averías periódicas
     G.failTimer -= dt;
-    if (G.failTimer <= 0) { G.failTimer = G.diff.failMean * (0.6 + Math.random() * 0.9); spawnFailure(); }
+    if (G.failTimer <= 0) { G.failTimer = G.diff.failMean * (0.6 + Math.random() * 0.9); spawnFault(); }
 
-    // --- viento ---
     updateWind(dt, frac);
-
-    // --- consejo amanecer/backtracking ---
-    if (_trk.bt && G.h < 9) tip('bt', 'Al amanecer/atardecer el backtracking inclina los seguidores para que no se den sombra entre filas.');
+    if (_trk.bt && G.h < 9) tip('bt', 'Al amanecer/atardecer el backtracking inclina los seguidores para no darse sombra entre filas.');
 
     updateHUD(frac);
     if (frac >= 1) finishGame();
@@ -431,23 +476,35 @@
     el('hCash').textContent = fmtEur(G.caja);
     var rend = G.idealKWh > 0 ? clamp(G.realKWh / G.idealKWh * 100, 0, 100) : 100;
     el('hPerf').textContent = fmt(rend, 0) + '%';
-    var nf = 0; for (var i = 0; i < trackers.length; i++) if (trackers[i].failed) nf++;
-    var hf = el('hFail'); hf.textContent = nf + ' / ' + NUM;
-    hf.style.color = nf ? 'var(--danger)' : 'var(--tx)';
+    var nf = 0; for (var i = 0; i < trackers.length; i++) if (trackers[i].fault) nf++;
+    var hf = el('hFail'); hf.textContent = nf + ' / ' + NUM; hf.style.color = nf ? 'var(--danger)' : 'var(--tx)';
     el('dayBar').style.width = (frac * 100).toFixed(1) + '%';
   }
 
-  /* ===================== toasts + consejos + banners ===================== */
+  /* ===================== popup de avería ===================== */
+  var popIdx = -1;
+  function openFaultPopup(idx) {
+    var t = trackers[idx]; if (!t.fault) return;
+    popIdx = idx; var f = FAULTS[t.fault];
+    el('fpIcon').textContent = f.icon;
+    el('fpIcon').style.background = f.sev === 'alarm' ? 'var(--danger)' : 'var(--warn)';
+    el('fpTitle').textContent = 'Seguidor ' + (idx + 1) + ' · ' + f.label;
+    el('fpSym').textContent = f.sym;
+    el('fpBtn').textContent = '🔧 Reparar · ' + fmtEur(f.cost);
+    el('fpop').classList.add('show');
+  }
+  function closeFaultPopup() { el('fpop').classList.remove('show'); popIdx = -1; }
+
+  /* ===================== toasts / consejos / banners ===================== */
   var toastTimer = null;
   function toast(msg, kind, ms) {
-    var t = el('toast'); t.textContent = msg;
-    t.className = 'toast show ' + (kind || 'info');
+    var t = el('toast'); t.textContent = msg; t.className = 'toast show ' + (kind || 'info');
     clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.className = 'toast'; }, ms || 2600);
   }
   function tip(key, msg) {
     if (!G || G.tipsShown[key]) return; G.tipsShown[key] = true;
-    var b = el('tip'); el('tipTxt').textContent = msg; b.classList.add('show');
-    setTimeout(function () { b.classList.remove('show'); }, 6500);
+    el('tipTxt').textContent = msg; el('tip').classList.add('show');
+    setTimeout(function () { el('tip').classList.remove('show'); }, 6800);
   }
   function windBanner(show, msg, kind) {
     var b = el('windBanner');
@@ -464,15 +521,12 @@
   var RKEY = 'solarTycoonRanking_v1';
   function loadRank() { try { return JSON.parse(localStorage.getItem(RKEY)) || []; } catch (_) { return []; } }
   function saveRank(arr) { try { localStorage.setItem(RKEY, JSON.stringify(arr.slice(0, 12))); } catch (_) {} }
-  function addScore(rec) {
-    var arr = loadRank(); arr.push(rec); arr.sort(function (a, b) { return b.score - a.score; });
-    saveRank(arr); return arr;
-  }
-  function rankTable(arr, highlight) {
+  function addScore(rec) { var arr = loadRank(); arr.push(rec); arr.sort(function (a, b) { return b.score - a.score; }); saveRank(arr); return arr; }
+  function rankTable(arr, hl) {
     if (!arr.length) return '<div class="muted">Aún no hay puntuaciones. ¡Sé el primero!</div>';
     var h = '<table class="rank"><tr><th>#</th><th>Equipo</th><th>Producción</th><th>Puntos</th></tr>';
     for (var i = 0; i < Math.min(arr.length, 8); i++) {
-      var r = arr[i], me = (highlight && r === highlight) ? ' class="me"' : '';
+      var r = arr[i], me = (hl && r === hl) ? ' class="me"' : '';
       h += '<tr' + me + '><td>' + (i + 1) + '</td><td>' + escapeHtml(r.team) + '</td><td>' +
         (r.kwh >= 1000 ? fmt(r.kwh / 1000, 2) + ' MWh' : fmt(r.kwh, 0) + ' kWh') +
         '</td><td><b>' + fmt(r.score, 0) + '</b></td></tr>';
@@ -484,46 +538,51 @@
   /* ===================== flujo de partida ===================== */
   function startGame(diffKey, team) {
     G = newGameState(diffKey, team);
-    // reset escena
-    for (var i = 0; i < trackers.length; i++) { var t = trackers[i]; t.failed = false; if (t.marker) { scene.remove(t.marker); t.marker = null; } }
-    scheduleWinds(); syncSafetyBtn(); windBanner(false);
+    for (var i = 0; i < trackers.length; i++) { clearFault(i); trackers[i].angle = 0; trackers[i].g.rotation.x = 0; }
+    scheduleWinds(); syncSafetyBtn(); windBanner(false); closeFaultPopup();
     el('start').classList.remove('show'); el('end').classList.remove('show');
     el('hud').classList.add('show'); el('actions').classList.add('show');
     G.running = true;
     toast('¡A producir, ' + team + '! El día va de ' + clockOf(H0) + ' a ' + clockOf(H1), 'info', 3200);
   }
   function finishGame() {
-    if (G.finished) return; G.finished = true; G.running = false;
+    if (G.finished) return; G.finished = true; G.running = false; closeFaultPopup();
     el('hud').classList.remove('show'); el('actions').classList.remove('show');
     var rend = G.idealKWh > 0 ? clamp(G.realKWh / G.idealKWh * 100, 0, 100) : 100;
     var score = Math.max(0, Math.round(G.caja));
     var rec = { team: G.team, score: score, kwh: G.realKWh, perf: Math.round(rend), diff: G.diffKey, date: Date.now() };
-    var arr = addScore(rec);
-    var pos = arr.indexOf(rec) + 1;
+    var arr = addScore(rec), pos = arr.indexOf(rec) + 1;
     el('endStats').innerHTML =
-      '<div class="big">' + fmtEur(score) + '</div><div class="muted">puntuación (caja final)</div>' +
+      '<div class="big">' + fmtEur(score) + '</div><div class="muted" style="text-align:center">puntuación (caja final)</div>' +
       '<div class="grid2">' +
         kpi('Energía', G.realKWh >= 1000 ? fmt(G.realKWh / 1000, 2) + ' MWh' : fmt(G.realKWh, 0) + ' kWh') +
         kpi('Rendimiento', fmt(rend, 0) + '%') +
         kpi('Ingresos', fmtEur(G.ingresos)) +
         kpi('Costes O&M', fmtEur(G.costes)) +
-      '</div>' +
-      '<div class="pos">Puesto <b>#' + pos + '</b> · ' + DIFFS[G.diffKey].lbl + '</div>';
+      '</div><div class="pos">Puesto <b>#' + pos + '</b> · ' + DIFFS[G.diffKey].lbl + '</div>';
     el('endRank').innerHTML = rankTable(arr, rec);
     el('end').classList.add('show');
   }
   function kpi(l, v) { return '<div class="kpi"><div class="kl">' + l + '</div><div class="kv">' + v + '</div></div>'; }
+
+  /* ===================== leyenda de averías (portada) ===================== */
+  function buildLegend() {
+    var box = el('legend'); if (!box) return; var h = '';
+    Object.keys(FAULTS).forEach(function (k) {
+      var f = FAULTS[k], col = f.sev === 'alarm' ? 'var(--danger)' : 'var(--warn)';
+      h += '<div class="lg"><span class="lgi" style="background:' + col + '">' + f.icon + '</span><span>' + f.label + '</span></div>';
+    });
+    box.innerHTML = h;
+  }
 
   /* ===================== arranque ===================== */
   function init() {
     buildScene(el('cv'));
     requestAnimationFrame(loop);
     onResize(); window.addEventListener('resize', onResize);
-
-    // ranking en la portada
     el('startRank').innerHTML = rankTable(loadRank());
+    buildLegend();
 
-    // selección de dificultad
     var picked = 'normal';
     Array.prototype.forEach.call(document.querySelectorAll('.diff'), function (b) {
       b.onclick = function () {
@@ -532,20 +591,12 @@
         b.classList.add('on');
       };
     });
-    el('btnPlay').onclick = function () {
-      var team = (el('team').value || '').trim() || 'Equipo';
-      startGame(picked, team);
-    };
+    el('btnPlay').onclick = function () { startGame(picked, (el('team').value || '').trim() || 'Equipo'); };
     el('btnAgain').onclick = function () { el('end').classList.remove('show'); el('start').classList.add('show'); el('startRank').innerHTML = rankTable(loadRank()); };
-    el('btnSafety').onclick = function () {
-      if (!G || !G.running) return;
-      G.safety = !G.safety; G.safetyAuto = false; syncSafetyBtn();
-    };
-    el('btnPause').onclick = function () {
-      if (!G) return; G.running = !G.running;
-      el('btnPause').textContent = G.running ? '⏸' : '▶';
-      if (!G.running) toast('Pausa', 'info', 1200);
-    };
+    el('btnSafety').onclick = function () { if (!G || !G.running) return; G.safety = !G.safety; G.safetyAuto = false; syncSafetyBtn(); };
+    el('btnPause').onclick = function () { if (!G) return; G.running = !G.running; el('btnPause').textContent = G.running ? '⏸' : '▶'; if (!G.running) toast('Pausa', 'info', 1200); };
+    el('fpBtn').onclick = function () { if (popIdx >= 0 && repairTracker(popIdx)) closeFaultPopup(); };
+    el('fpClose').onclick = closeFaultPopup;
     el('tipClose').onclick = function () { el('tip').classList.remove('show'); };
   }
   function onResize() {

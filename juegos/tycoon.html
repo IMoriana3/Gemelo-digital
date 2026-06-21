@@ -120,6 +120,25 @@
   .pos{text-align:center;color:var(--tx2);font-size:14px;margin-top:6px}
   .foot{margin-top:16px;text-align:center}
   .foot a{color:var(--accent);text-decoration:none;font-size:12px}
+
+  /* popup de avería */
+  .fpop{position:fixed;left:12px;right:12px;bottom:84px;max-width:460px;margin:0 auto;z-index:22;
+    background:linear-gradient(180deg,#16202b,#0f1822);border:1px solid var(--line2);border-radius:15px;
+    padding:15px 16px;display:none;box-shadow:0 18px 50px rgba(0,0,0,.55)}
+  .fpop.show{display:block}
+  .fpop .row{display:flex;align-items:center;gap:12px}
+  .fpop .ic{width:46px;height:46px;border-radius:12px;display:flex;align-items:center;justify-content:center;
+    font-size:24px;color:#fff;flex:none;background:var(--warn)}
+  .fpop .ti{font:700 16px var(--display)}
+  .fpop .sym{color:var(--tx2);font-size:13px;line-height:1.45;margin:11px 0 13px}
+  .fpop .btns{display:flex;gap:9px}
+  .fpop .rep{flex:1;background:var(--accent);color:#06210f;border:0;border-radius:11px;padding:13px;font:700 15px var(--sans);cursor:pointer}
+  .fpop .cl{background:var(--card2);color:var(--tx2);border:1px solid var(--line2);border-radius:11px;padding:13px 16px;cursor:pointer;font:600 15px var(--sans)}
+
+  /* leyenda de componentes */
+  .legend{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+  .lg{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--tx2)}
+  .lgi{width:24px;height:24px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:14px;color:#fff;flex:none}
 </style>
 </head>
 <body>
@@ -155,6 +174,13 @@
     <button class="btn icon" id="btnPause">⏸</button>
   </div>
 
+  <!-- popup de avería -->
+  <div class="fpop" id="fpop">
+    <div class="row"><span class="ic" id="fpIcon">!</span><span class="ti" id="fpTitle"></span></div>
+    <div class="sym" id="fpSym"></div>
+    <div class="btns"><button class="rep" id="fpBtn">Reparar</button><button class="cl" id="fpClose">Cerrar</button></div>
+  </div>
+
   <!-- PORTADA -->
   <div class="overlay show" id="start">
     <div class="card-modal">
@@ -176,9 +202,14 @@
       </div>
 
       <div class="how">
-        <div><span>🔧</span><span><b>Averías:</b> un seguidor falla y deja de producir. Tócalo para enviar un técnico (cuesta €).</span></div>
-        <div><span>💨</span><span><b>Viento:</b> cuando avise, pulsa <b>Seguridad</b> a tiempo o habrá daños.</span></div>
+        <div><span>🔧</span><span><b>Averías por componente:</b> falla un módulo, el eje, el motor, el amortiguador, la TCU o la batería. Toca el seguidor para ver el síntoma y repararlo.</span></div>
+        <div><span>💨</span><span><b>Viento:</b> cuando avise, pulsa <b>Seguridad</b> a tiempo. Y arregla los <b>amortiguadores</b> antes de la racha o habrá daño estructural.</span></div>
         <div><span>🏆</span><span><b>Objetivo:</b> termina el día con la mayor <b>caja</b> posible. Tu marca entra en el ranking.</span></div>
+      </div>
+
+      <div class="rankWrap">
+        <h3>⚙ Componentes que pueden fallar</h3>
+        <div id="legend" class="legend"></div>
       </div>
 
       <button class="play" id="btnPlay">▶ Jugar</button>
