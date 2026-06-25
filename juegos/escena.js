@@ -88,17 +88,26 @@
 
   /* ---- TCU: CAD real (tcu.glb) con fallback modelado ---- */
   var TCU_GLB = 'https://cdn.jsdelivr.net/gh/IMoriana3/gemelo-digital@main/tcu.glb';
-  function loadRealTCU(parent, pos, fallback) {
-    if (!THREE.GLTFLoader) return;
+  // Monta el CAD real EXACTAMENTE como el Gemelo: misma orientación (_TCUMOUNT),
+  // escala NATIVA (como Cobertura 3D) y recoloreado de metales + seta roja.
+  function loadRealTCU(parent, fallback) {
+    if (typeof THREE.GLTFLoader !== 'function') return;
     try {
       new THREE.GLTFLoader().load(TCU_GLB, function (gltf) {
-        var o = gltf.scene;
-        var box = new THREE.Box3().setFromObject(o), size = new THREE.Vector3(), center = new THREE.Vector3();
-        box.getSize(size); box.getCenter(center);
-        var maxd = Math.max(size.x, size.y, size.z) || 1, s = 0.55 / maxd;   // escala a ~0,55 m
-        o.scale.setScalar(s); o.position.set(-center.x * s, -center.y * s, -center.z * s);
-        o.traverse(function (m) { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; if (m.material) m.material.envMapIntensity = 1.0; } });
-        var wrap = new THREE.Group(); wrap.add(o); wrap.position.copy(pos); parent.add(wrap);
+        var m = gltf.scene, box = new THREE.Box3().setFromObject(m), sz = box.getSize(new THREE.Vector3());
+        if (!isFinite(Math.max(sz.x, sz.y, sz.z)) || Math.max(sz.x, sz.y, sz.z) <= 0) return;
+        var ctr = box.getCenter(new THREE.Vector3());
+        var cl = m.clone(true); cl.position.sub(ctr);                          // escala nativa, centrado en su bbox
+        cl.traverse(function (o) {
+          if (!o.isMesh) return; o.castShadow = false; o.receiveShadow = true;
+          var src = (o.material && o.material.isMaterial) ? o.material : null, mm = src ? src.clone() : new THREE.MeshStandardMaterial({ color: 0xe8e4dc });
+          if (mm.metalness != null) mm.metalness = Math.min(mm.metalness, 0.18); else mm.metalness = 0.15;   // los metales del glb salían negros sin reflejo
+          if (mm.roughness == null || mm.roughness < 0.45) mm.roughness = 0.6;
+          if (src && src.name === 'mat_1') { mm.color = new THREE.Color(0xcc1417); mm.metalness = 0.1; mm.roughness = 0.5; }   // la SETA: roja
+          mm.envMapIntensity = 1.0; mm.needsUpdate = true; o.material = mm;
+        });
+        var TM = new THREE.Matrix4().makeRotationY(Math.PI / 2); TM.multiply(new THREE.Matrix4().makeRotationX(Math.PI)); TM.setPosition(Seguidor.DIMS.tcuX, -0.16, 0);
+        var wrap = new THREE.Group(); wrap.add(cl); wrap.applyMatrix4(TM); parent.add(wrap);
         if (fallback) fallback.visible = false;
       }, undefined, function () { /* error de carga -> queda el fallback modelado */ });
     } catch (e) {}
@@ -130,7 +139,7 @@
     }
     var beam = Seguidor.buildBeam(THREE, { west: west, materials: SG, detail: detail || 'full', skip: { soporte: 1, bracket: 1, antena: 1, antenatip: 1, tcu: 1 } });
     var g = new THREE.Group(); g.position.set(xs, 2, zc); g.add(beam.spin); scene.add(g);
-    if (west) { var tcu = buildTCU(); tcu.position.set(Seguidor.DIMS.tcuX, -0.22, 0); g.add(tcu); loadRealTCU(g, new THREE.Vector3(Seguidor.DIMS.tcuX, -0.2, 0), tcu); }
+    if (west) { var tcu = buildTCU(); tcu.position.set(Seguidor.DIMS.tcuX, -0.22, 0); g.add(tcu); loadRealTCU(g, tcu); }
     var slew = new THREE.Group(); slew.position.set(xs, 2, zc); slew.add(beam.static); scene.add(slew);
     beam.dampers.forEach(function (d) {
       var pbx = d.b[0], Bp = new THREE.Vector3(xs + d.a[0], 0.40, zc + d.a[2]);
