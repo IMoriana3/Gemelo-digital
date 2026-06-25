@@ -86,6 +86,22 @@
     return { st: st, apply: apply, zoom: function (f) { st.radius = clampR(st.radius * f); apply(); } };
   }
 
+  /* ---- TCU modelada (sustituye al cubo placeholder de seguidor.js) ---- */
+  function buildTCU() {
+    var g = new THREE.Group();
+    var body = new THREE.MeshStandardMaterial({ color: 0x2b3440, roughness: 0.45, metalness: 0.5, envMapIntensity: 1.0 });
+    var lid = new THREE.MeshStandardMaterial({ color: 0x404d5e, roughness: 0.3, metalness: 0.6, envMapIntensity: 1.15 });
+    var dark = new THREE.MeshStandardMaterial({ color: 0x12161b, roughness: 0.6, metalness: 0.35 });
+    var red = new THREE.MeshStandardMaterial({ color: 0xc0392b, roughness: 0.4 });
+    var b = new THREE.Mesh(new THREE.BoxGeometry(0.50, 0.22, 0.34), body); b.castShadow = true; b.receiveShadow = true; g.add(b);
+    var l = new THREE.Mesh(new THREE.BoxGeometry(0.47, 0.05, 0.31), lid); l.position.y = 0.125; l.castShadow = true; g.add(l);
+    var btn = new THREE.Mesh(new THREE.CylinderGeometry(0.034, 0.034, 0.035, 18), red); btn.position.set(-0.2, 0.155, 0); g.add(btn);
+    var ant = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.20, 8), dark); ant.position.set(0.22, 0.21, -0.1); g.add(ant);
+    [-0.16, -0.08, 0, 0.08, 0.16].forEach(function (zx) { var cn = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.017, 0.06, 12), dark); cn.position.set(zx, -0.13, 0.06); g.add(cn); });
+    [-0.27, 0.27].forEach(function (ex) { var fl = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.16, 0.10), dark); fl.position.set(ex, 0, 0); fl.castShadow = true; g.add(fl); });
+    return g;
+  }
+
   /* ---- un seguidor completo (porta buildTracker del gemelo) ---- */
   function buildOne(scene, SG, xs, zc, west, detail) {
     var dampers = [], motorCables = [], steel = SG.steel, silver = SG.silver, dark2 = SG.jbox;
@@ -96,8 +112,9 @@
       var ped = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.12, 0.30), silver); ped.position.set(pxv, 1.94, zc); ped.castShadow = true; scene.add(ped);
       var brg = new THREE.Mesh(new THREE.CylinderGeometry(0.10, 0.10, 0.18, 18), silver); brg.rotation.z = Math.PI / 2; brg.position.set(pxv, 2.0, zc); brg.castShadow = true; scene.add(brg);
     }
-    var beam = Seguidor.buildBeam(THREE, { west: west, materials: SG, detail: detail || 'full', skip: { soporte: 1, bracket: 1, antena: 1, antenatip: 1 } });
+    var beam = Seguidor.buildBeam(THREE, { west: west, materials: SG, detail: detail || 'full', skip: { soporte: 1, bracket: 1, antena: 1, antenatip: 1, tcu: 1 } });
     var g = new THREE.Group(); g.position.set(xs, 2, zc); g.add(beam.spin); scene.add(g);
+    if (west) { var tcu = buildTCU(); tcu.position.set(Seguidor.DIMS.tcuX, -0.22, 0); g.add(tcu); }
     var slew = new THREE.Group(); slew.position.set(xs, 2, zc); slew.add(beam.static); scene.add(slew);
     beam.dampers.forEach(function (d) {
       var pbx = d.b[0], Bp = new THREE.Vector3(xs + d.a[0], 0.40, zc + d.a[2]);
