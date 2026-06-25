@@ -11,13 +11,15 @@
   var THREE = window.THREE;
 
   /* puntos en coordenadas LOCALES del seguidor (hijos del grupo que bascula / del slew) */
+  // pos en coords LOCALES del grupo indicado; 'world' = en la escena (para el amortiguador,
+  // cuyo cuerpo va de la hinca a la viga y no cuelga del grupo que bascula).
   var HOTSPOTS = [
-    { key: 'modulo', on: 'spin', pos: [14, 0.25, 0], lbl: 'Módulo' },
-    { key: 'correa', on: 'spin', pos: [-8, 0.16, 0], lbl: 'Correa' },
-    { key: 'cableado', on: 'spin', pos: [9, 0.05, 0.1], lbl: 'Cableado' },
-    { key: 'tcu', on: 'spin', pos: [1.4, -0.18, 0], lbl: 'TCU' },
-    { key: 'amortiguador', on: 'spin', pos: [-20, -0.2, 0.3], lbl: 'Amortiguador' },
-    { key: 'motor', on: 'slew', pos: [0, -0.04, -0.55], lbl: 'Motor' }
+    { key: 'modulo', on: 'spin', pos: [12, 0.20, 0.85], lbl: 'Módulo' },          // SOBRE la cara del panel
+    { key: 'cableado', on: 'spin', pos: [-6, 0.02, -0.85], lbl: 'Cableado' },     // BAJO el panel (string/cajas)
+    { key: 'correa', on: 'spin', pos: [18, 0.13, 0], lbl: 'Correa' },             // omega+abarcón sobre la viga
+    { key: 'tcu', on: 'spin', pos: [1.4, -0.34, 0], lbl: 'TCU' },                 // caja colgada bajo la viga
+    { key: 'motor', on: 'slew', pos: [0, -0.16, -0.62], lbl: 'Motor' },           // motor del slew (centro)
+    { key: 'amortiguador', on: 'world', pos: [24, 1.05, 0.2], lbl: 'Amortiguador' } // tirante diagonal del extremo
   ];
   var DEFECTS = {
     modulo: { label: 'Módulo / string', sym: 'Una rama produce mucho menos de lo normal y se aprecia una zona más oscura en los paneles.', exp: 'Módulo o string dañado (microgrietas / punto caliente).' },
@@ -49,16 +51,18 @@
   function shuffle(a) { for (var i = a.length - 1; i > 0; i--) { var j = (Math.random() * (i + 1)) | 0, t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
 
   function build() {
-    ESC = Escena.create(THREE, el('cv'), { layout: 'single', detail: 'full', autoDay: false, autoOrbit: false, hour: 9.5 });
+    ESC = Escena.create(THREE, el('cv'), { layout: 'single', detail: 'full', autoDay: false, autoOrbit: false, hour: 12.5 });
     var T = ESC.trackers[0], RING = ringTex();
     HOTSPOTS.forEach(function (hs) {
-      var parent = hs.on === 'slew' ? T.slew : T.spin;
-      var hb = new THREE.Mesh(new THREE.BoxGeometry(2.4, 2.0, 2.2), new THREE.MeshBasicMaterial({ visible: false }));
+      var parent = hs.on === 'slew' ? T.slew : (hs.on === 'world' ? ESC.scene : T.spin);
+      var hb = new THREE.Mesh(new THREE.BoxGeometry(2.6, 2.2, 2.6), new THREE.MeshBasicMaterial({ visible: false }));
       hb.position.set(hs.pos[0], hs.pos[1], hs.pos[2]); hb.userData.key = hs.key; parent.add(hb); hitboxes.push(hb);
       var d = new THREE.Sprite(new THREE.SpriteMaterial({ map: RING, color: 0x36d399, transparent: true, depthTest: false, depthWrite: false }));
-      d.scale.set(2.2, 2.2, 1); d.position.set(hs.pos[0], hs.pos[1], hs.pos[2]); d.userData.p = Math.random() * 6.28; d.visible = false; d.renderOrder = 11; parent.add(d); dots[hs.key] = d;
-      var lab = labelSprite(hs.lbl); lab.position.set(hs.pos[0], hs.pos[1] + 1.6, hs.pos[2]); lab.visible = false; parent.add(lab); labels[hs.key] = lab;
+      d.scale.set(2.0, 2.0, 1); d.position.set(hs.pos[0], hs.pos[1], hs.pos[2]); d.userData.p = Math.random() * 6.28; d.visible = false; d.renderOrder = 11; parent.add(d); dots[hs.key] = d;
+      var lab = labelSprite(hs.lbl); lab.position.set(hs.pos[0], hs.pos[1] + 1.4, hs.pos[2]); lab.visible = false; parent.add(lab); labels[hs.key] = lab;
     });
+    // cámara en 3/4 elevado para distinguir bien cada componente
+    ESC.orbit.st.theta = 0.8; ESC.orbit.st.phi = 0.62; ESC.orbit.st.radius = 42; ESC.orbit.apply();
     // detección de toque (además de la órbita de escena.js)
     var dom = ESC.renderer.domElement, down = null;
     dom.addEventListener('pointerdown', function (e) { down = { x: e.clientX, y: e.clientY, t: performance.now() }; });
