@@ -86,7 +86,23 @@
     return { st: st, apply: apply, zoom: function (f) { st.radius = clampR(st.radius * f); apply(); } };
   }
 
-  /* ---- TCU modelada (sustituye al cubo placeholder de seguidor.js) ---- */
+  /* ---- TCU: CAD real (tcu.glb) con fallback modelado ---- */
+  var TCU_GLB = 'https://cdn.jsdelivr.net/gh/IMoriana3/gemelo-digital@main/tcu.glb';
+  function loadRealTCU(parent, pos, fallback) {
+    if (!THREE.GLTFLoader) return;
+    try {
+      new THREE.GLTFLoader().load(TCU_GLB, function (gltf) {
+        var o = gltf.scene;
+        var box = new THREE.Box3().setFromObject(o), size = new THREE.Vector3(), center = new THREE.Vector3();
+        box.getSize(size); box.getCenter(center);
+        var maxd = Math.max(size.x, size.y, size.z) || 1, s = 0.55 / maxd;   // escala a ~0,55 m
+        o.scale.setScalar(s); o.position.set(-center.x * s, -center.y * s, -center.z * s);
+        o.traverse(function (m) { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; if (m.material) m.material.envMapIntensity = 1.0; } });
+        var wrap = new THREE.Group(); wrap.add(o); wrap.position.copy(pos); parent.add(wrap);
+        if (fallback) fallback.visible = false;
+      }, undefined, function () { /* error de carga -> queda el fallback modelado */ });
+    } catch (e) {}
+  }
   function buildTCU() {
     var g = new THREE.Group();
     var body = new THREE.MeshStandardMaterial({ color: 0x2b3440, roughness: 0.45, metalness: 0.5, envMapIntensity: 1.0 });
@@ -114,7 +130,7 @@
     }
     var beam = Seguidor.buildBeam(THREE, { west: west, materials: SG, detail: detail || 'full', skip: { soporte: 1, bracket: 1, antena: 1, antenatip: 1, tcu: 1 } });
     var g = new THREE.Group(); g.position.set(xs, 2, zc); g.add(beam.spin); scene.add(g);
-    if (west) { var tcu = buildTCU(); tcu.position.set(Seguidor.DIMS.tcuX, -0.22, 0); g.add(tcu); }
+    if (west) { var tcu = buildTCU(); tcu.position.set(Seguidor.DIMS.tcuX, -0.22, 0); g.add(tcu); loadRealTCU(g, new THREE.Vector3(Seguidor.DIMS.tcuX, -0.2, 0), tcu); }
     var slew = new THREE.Group(); slew.position.set(xs, 2, zc); slew.add(beam.static); scene.add(slew);
     beam.dampers.forEach(function (d) {
       var pbx = d.b[0], Bp = new THREE.Vector3(xs + d.a[0], 0.40, zc + d.a[2]);
