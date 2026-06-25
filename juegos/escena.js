@@ -90,27 +90,32 @@
   var TCU_GLB = 'https://cdn.jsdelivr.net/gh/IMoriana3/gemelo-digital@main/tcu.glb';
   // Monta el CAD real EXACTAMENTE como el Gemelo: misma orientación (_TCUMOUNT),
   // escala NATIVA (como Cobertura 3D) y recoloreado de metales + seta roja.
+  var _tcuGltf = null, _tcuCbs = [], _tcuTried = false;
+  function _getTCU(cb) {   // carga el glb UNA vez y reparte el clon a todos (N seguidores, 1 descarga)
+    if (_tcuGltf) { cb(_tcuGltf); return; }
+    _tcuCbs.push(cb);
+    if (_tcuTried || typeof THREE.GLTFLoader !== 'function') return;
+    _tcuTried = true;
+    try { new THREE.GLTFLoader().load(TCU_GLB, function (g) { _tcuGltf = g.scene; var q = _tcuCbs; _tcuCbs = []; q.forEach(function (f) { try { f(_tcuGltf); } catch (e) {} }); }, undefined, function () { }); } catch (e) {}
+  }
   function loadRealTCU(parent, fallback) {
-    if (typeof THREE.GLTFLoader !== 'function') return;
-    try {
-      new THREE.GLTFLoader().load(TCU_GLB, function (gltf) {
-        var m = gltf.scene, box = new THREE.Box3().setFromObject(m), sz = box.getSize(new THREE.Vector3());
-        if (!isFinite(Math.max(sz.x, sz.y, sz.z)) || Math.max(sz.x, sz.y, sz.z) <= 0) return;
-        var ctr = box.getCenter(new THREE.Vector3());
-        var cl = m.clone(true); cl.position.sub(ctr);                          // escala nativa, centrado en su bbox
-        cl.traverse(function (o) {
-          if (!o.isMesh) return; o.castShadow = false; o.receiveShadow = true;
-          var src = (o.material && o.material.isMaterial) ? o.material : null, mm = src ? src.clone() : new THREE.MeshStandardMaterial({ color: 0xe8e4dc });
-          if (mm.metalness != null) mm.metalness = Math.min(mm.metalness, 0.18); else mm.metalness = 0.15;   // los metales del glb salían negros sin reflejo
-          if (mm.roughness == null || mm.roughness < 0.45) mm.roughness = 0.6;
-          if (src && src.name === 'mat_1') { mm.color = new THREE.Color(0xcc1417); mm.metalness = 0.1; mm.roughness = 0.5; }   // la SETA: roja
-          mm.envMapIntensity = 1.0; mm.needsUpdate = true; o.material = mm;
-        });
-        var TM = new THREE.Matrix4().makeRotationY(Math.PI / 2); TM.multiply(new THREE.Matrix4().makeRotationX(Math.PI)); TM.setPosition(Seguidor.DIMS.tcuX, -0.16, 0);
-        var wrap = new THREE.Group(); wrap.add(cl); wrap.applyMatrix4(TM); parent.add(wrap);
-        if (fallback) fallback.visible = false;
-      }, undefined, function () { /* error de carga -> queda el fallback modelado */ });
-    } catch (e) {}
+    _getTCU(function (scene) {
+      var box = new THREE.Box3().setFromObject(scene), sz = box.getSize(new THREE.Vector3());
+      if (!isFinite(Math.max(sz.x, sz.y, sz.z)) || Math.max(sz.x, sz.y, sz.z) <= 0) return;
+      var ctr = box.getCenter(new THREE.Vector3());
+      var cl = scene.clone(true); cl.position.sub(ctr);                        // escala nativa, centrado en su bbox
+      cl.traverse(function (o) {
+        if (!o.isMesh) return; o.castShadow = false; o.receiveShadow = true;
+        var src = (o.material && o.material.isMaterial) ? o.material : null, mm = src ? src.clone() : new THREE.MeshStandardMaterial({ color: 0xe8e4dc });
+        if (mm.metalness != null) mm.metalness = Math.min(mm.metalness, 0.18); else mm.metalness = 0.15;   // los metales del glb salían negros sin reflejo
+        if (mm.roughness == null || mm.roughness < 0.45) mm.roughness = 0.6;
+        if (src && src.name === 'mat_1') { mm.color = new THREE.Color(0xcc1417); mm.metalness = 0.1; mm.roughness = 0.5; }   // la SETA: roja
+        mm.envMapIntensity = 1.0; mm.needsUpdate = true; o.material = mm;
+      });
+      var TM = new THREE.Matrix4().makeRotationY(Math.PI / 2); TM.multiply(new THREE.Matrix4().makeRotationX(Math.PI)); TM.setPosition(Seguidor.DIMS.tcuX, -0.16, 0);
+      var wrap = new THREE.Group(); wrap.add(cl); wrap.applyMatrix4(TM); parent.add(wrap);
+      if (fallback) fallback.visible = false;
+    });
   }
   function buildTCU() {
     var g = new THREE.Group();
@@ -159,6 +164,17 @@
       motorCables.push({ Ax: xs, Ay: 2.16, Az: zc - 0.42, Bx: 0.18, By: 0.085, Bz: 0, xs: xs, zc: zc, mesh: _flex });
     }
     return { spin: g, slew: slew, xs: xs, zc: zc, dampers: dampers, motorCables: motorCables };
+  }
+
+  // Actualiza basculación + amortiguadores + cable de motor de cada seguidor (cada T usa su T.ang en grados)
+  function updateTrackers(trackers) {
+    var up = new THREE.Vector3(0, 1, 0);
+    for (var t = 0; t < trackers.length; t++) {
+      var T = trackers[t], ar = (T.ang || 0) * D2R, _c = Math.cos(ar), _sn = Math.sin(ar);
+      T.spin.rotation.x = ar;
+      var di; for (di = 0; di < T.dampers.length; di++) { var Dp = T.dampers[di]; var _T = new THREE.Vector3(Dp.px, 2 + Dp.dy0 * _c - Dp.dz0 * _sn, Dp.zc + Dp.dy0 * _sn + Dp.dz0 * _c); var _dir = _T.clone().sub(Dp.B), _len = _dir.length(), _mid = Dp.B.clone().lerp(_T, 0.5); var _q = new THREE.Quaternion().setFromUnitVectors(up, _dir.clone().normalize()); Dp.body.position.copy(_mid); Dp.body.quaternion.copy(_q); Dp.body.scale.y = _len * 0.62; Dp.rod.position.copy(_mid); Dp.rod.quaternion.copy(_q); Dp.rod.scale.y = _len; }
+      var mi; for (mi = 0; mi < T.motorCables.length; mi++) { var M = T.motorCables[mi]; var _Bw = new THREE.Vector3(M.xs + M.Bx, 2 + M.By * _c - M.Bz * _sn, M.zc + M.By * _sn + M.Bz * _c); var _Aw = new THREE.Vector3(M.Ax, M.Ay, M.Az), _dd = _Bw.clone().sub(_Aw), _ll = _dd.length() || 1e-4; M.mesh.position.copy(_Aw).lerp(_Bw, 0.5); M.mesh.quaternion.setFromUnitVectors(up, _dd.normalize()); M.mesh.scale.y = _ll; }
+    }
   }
 
   E.create = function (THREE_, mount, opts) {
@@ -244,13 +260,9 @@
 
     ESC.frame = function (now, dt) {
       if (ESC.autoDay) { ESC.hour += dt * (24 / ESC.daySeconds); if (ESC.hour >= 24) ESC.hour -= 24; if (ESC.hour < 0) ESC.hour += 24; }
-      var ang = trackAngle(ESC.hour); ESC._ang = ang; var ar = ang * D2R, _c = Math.cos(ar), _sn = Math.sin(ar);
-      var up = new THREE.Vector3(0, 1, 0);
-      for (var t = 0; t < ESC.trackers.length; t++) {
-        var T = ESC.trackers[t]; T.spin.rotation.x = ar;
-        var di; for (di = 0; di < T.dampers.length; di++) { var Dp = T.dampers[di]; var _T = new THREE.Vector3(Dp.px, 2 + Dp.dy0 * _c - Dp.dz0 * _sn, Dp.zc + Dp.dy0 * _sn + Dp.dz0 * _c); var _dir = _T.clone().sub(Dp.B), _len = _dir.length(), _mid = Dp.B.clone().lerp(_T, 0.5); var _q = new THREE.Quaternion().setFromUnitVectors(up, _dir.clone().normalize()); Dp.body.position.copy(_mid); Dp.body.quaternion.copy(_q); Dp.body.scale.y = _len * 0.62; Dp.rod.position.copy(_mid); Dp.rod.quaternion.copy(_q); Dp.rod.scale.y = _len; }
-        var mi; for (mi = 0; mi < T.motorCables.length; mi++) { var M = T.motorCables[mi]; var _Bw = new THREE.Vector3(M.xs + M.Bx, 2 + M.By * _c - M.Bz * _sn, M.zc + M.By * _sn + M.Bz * _c); var _Aw = new THREE.Vector3(M.Ax, M.Ay, M.Az), _dd = _Bw.clone().sub(_Aw), _ll = _dd.length() || 1e-4; M.mesh.position.copy(_Aw).lerp(_Bw, 0.5); M.mesh.quaternion.setFromUnitVectors(up, _dd.normalize()); M.mesh.scale.y = _ll; }
-      }
+      var ang = trackAngle(ESC.hour); ESC._ang = ang;
+      for (var t = 0; t < ESC.trackers.length; t++) ESC.trackers[t].ang = ang;
+      updateTrackers(ESC.trackers);
       // sol + cielo físico
       var P = solarPos(ESC.hour), el = P.el, ce = Math.cos(Math.max(el, -0.05));
       var dir = new THREE.Vector3(Math.cos(P.az) * ce, Math.sin(el), Math.sin(P.az) * ce);
@@ -314,44 +326,46 @@
     var composer = null;
     try { if (THREE.EffectComposer && THREE.RenderPass) { composer = new THREE.EffectComposer(rnd); composer.addPass(new THREE.RenderPass(sc, cam)); if (THREE.UnrealBloomPass) composer.addPass(new THREE.UnrealBloomPass(new THREE.Vector2(256, 256), 0.4, 0.55, 0.92)); if (THREE.SMAAPass) composer.addPass(new THREE.SMAAPass(256, 256)); } } catch (e) { composer = null; }
 
-    // ---- campo instanciado ----
-    var KEEP = { tube: 1, tubecap: 1, mesa: 1, correa: 1, cable: 1, jbox: 1, corona: 1, reductora: 1, cuello: 1, motor: 1, tapa: 1 };
-    var plan = Seguidor.instancePlan(THREE, { detail: 'mass', size: 'largo' }).filter(function (p) { return KEEP[p.key]; });
-    var Ry = new THREE.Matrix4().makeRotationY(-Math.PI / 2);
-    var groups = [];
-    plan.forEach(function (pt) {
-      var L = pt.locals.length, mesh = new THREE.InstancedMesh(pt.geom(THREE), SG[pt.mat], N * L);
-      mesh.castShadow = !!pt.cast; mesh.receiveShadow = true; mesh.frustumCulled = false; mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      sc.add(mesh); groups.push({ mesh: mesh, spin: pt.spin, locals: pt.locals, L: L });
-    });
-    // postes simples (2 por seguidor)
-    var postGeo = new THREE.BoxGeometry(0.14, 2.0, 0.14), post = new THREE.InstancedMesh(postGeo, SG.steel, N * 2), pdm = new THREE.Object3D();
-    post.castShadow = true; sc.add(post);
-    for (var pti = 0; pti < N; pti++) { for (var pk = 0; pk < 2; pk++) { pdm.position.set(positions[pti].x, 1.0, positions[pti].z + (pk ? 18 : -18)); pdm.updateMatrix(); post.setMatrixAt(pti * 2 + pk, pdm.matrix); } }
-    post.instanceMatrix.needsUpdate = true;
-
-    var tmpA = new THREE.Matrix4(), tmpB = new THREE.Matrix4(), tmpM = new THREE.Matrix4();
-    function fillGroup(rec, useAngle) {
-      var L = rec.L, RyRx = tmpA.copy(Ry); if (rec.spin) RyRx.multiply(tmpB.makeRotationX((useAngle || 0) * D2R));
-      var Ml = []; for (var l = 0; l < L; l++) Ml[l] = new THREE.Matrix4().copy(RyRx).multiply(rec.locals[l]);
-      for (var t = 0; t < N; t++) {
-        var ang = rec.spin ? (ESC.override[t] != null ? ESC.override[t] : ESC.tiltDeg) : 0, src;
-        if (rec.spin && ESC.override[t] != null) { var RR = new THREE.Matrix4().copy(Ry).multiply(new THREE.Matrix4().makeRotationX(ang * D2R)); }
-        for (var l2 = 0; l2 < L; l2++) {
-          if (rec.spin && ESC.override[t] != null) { tmpM.copy(Ry).multiply(tmpB.makeRotationX(ang * D2R)).multiply(rec.locals[l2]); }
-          else { tmpM.copy(Ml[l2]); }
-          tmpM.elements[12] += positions[t].x; tmpM.elements[13] += 2; tmpM.elements[14] += positions[t].z;
-          rec.mesh.setMatrixAt(t * L + l2, tmpM);
+    // ---- campo: DETALLADO (buildOne, calidad gemelo) o instanciado (escala) ----
+    ESC.trackers = [];
+    var groups = [], rebuildSpin = function () { };
+    if (opts.detailed) {
+      for (var pdi = 0; pdi < N; pdi++) { var Td = buildOne(sc, SG, positions[pdi].x, positions[pdi].z, (pdi % 2 === 0), 'full'); Td.ang = 0; ESC.trackers.push(Td); }
+    } else {
+      var KEEP = { tube: 1, tubecap: 1, mesa: 1, correa: 1, cable: 1, jbox: 1, corona: 1, reductora: 1, cuello: 1, motor: 1, tapa: 1 };
+      var plan = Seguidor.instancePlan(THREE, { detail: 'mass', size: 'largo' }).filter(function (p) { return KEEP[p.key]; });
+      var Ry = new THREE.Matrix4().makeRotationY(-Math.PI / 2);
+      plan.forEach(function (pt) {
+        var L = pt.locals.length, mesh = new THREE.InstancedMesh(pt.geom(THREE), SG[pt.mat], N * L);
+        mesh.castShadow = !!pt.cast; mesh.receiveShadow = true; mesh.frustumCulled = false; mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        sc.add(mesh); groups.push({ mesh: mesh, spin: pt.spin, locals: pt.locals, L: L });
+      });
+      var postGeo = new THREE.BoxGeometry(0.14, 2.0, 0.14), post = new THREE.InstancedMesh(postGeo, SG.steel, N * 2), pdm = new THREE.Object3D();
+      post.castShadow = true; sc.add(post);
+      for (var pti = 0; pti < N; pti++) { for (var pk = 0; pk < 2; pk++) { pdm.position.set(positions[pti].x, 1.0, positions[pti].z + (pk ? 18 : -18)); pdm.updateMatrix(); post.setMatrixAt(pti * 2 + pk, pdm.matrix); } }
+      post.instanceMatrix.needsUpdate = true;
+      var tmpA = new THREE.Matrix4(), tmpB = new THREE.Matrix4(), tmpM = new THREE.Matrix4();
+      var fillGroup = function (rec, useAngle) {
+        var L = rec.L, RyRx = tmpA.copy(Ry); if (rec.spin) RyRx.multiply(tmpB.makeRotationX((useAngle || 0) * D2R));
+        var Ml = []; for (var l = 0; l < L; l++) Ml[l] = new THREE.Matrix4().copy(RyRx).multiply(rec.locals[l]);
+        for (var t = 0; t < N; t++) {
+          var ov = ESC.override[t];
+          for (var l2 = 0; l2 < L; l2++) {
+            if (rec.spin && ov != null) { tmpM.copy(Ry).multiply(tmpB.makeRotationX(ov * D2R)).multiply(rec.locals[l2]); }
+            else { tmpM.copy(Ml[l2]); }
+            tmpM.elements[12] += positions[t].x; tmpM.elements[13] += 2; tmpM.elements[14] += positions[t].z;
+            rec.mesh.setMatrixAt(t * L + l2, tmpM);
+          }
         }
-      }
-      rec.mesh.instanceMatrix.needsUpdate = true;
+        rec.mesh.instanceMatrix.needsUpdate = true;
+      };
+      rebuildSpin = function () { for (var i = 0; i < groups.length; i++) if (groups[i].spin) fillGroup(groups[i], ESC.tiltDeg); };
+      var buildStatic = function () { for (var i = 0; i < groups.length; i++) if (!groups[i].spin) fillGroup(groups[i], 0); };
+      buildStatic(); rebuildSpin();
     }
-    function rebuildSpin() { for (var i = 0; i < groups.length; i++) if (groups[i].spin) fillGroup(groups[i], ESC.tiltDeg); }
-    function buildStatic() { for (var i = 0; i < groups.length; i++) if (!groups[i].spin) fillGroup(groups[i], 0); }
-    buildStatic(); rebuildSpin();
 
     // hitboxes por seguidor (para tap)
-    var hbGeo = new THREE.BoxGeometry(5, 3, 64), hbMat = new THREE.MeshBasicMaterial({ visible: false });
+    var hbGeo = opts.detailed ? new THREE.BoxGeometry(64, 3, 4) : new THREE.BoxGeometry(5, 3, 64), hbMat = new THREE.MeshBasicMaterial({ visible: false });
     for (var hi = 0; hi < N; hi++) { var hb = new THREE.Mesh(hbGeo, hbMat); hb.position.set(positions[hi].x, 2, positions[hi].z); hb.userData.idx = hi; sc.add(hb); ESC.hitboxes.push(hb); }
     ESC.markerPos = function (i) { return new THREE.Vector3(positions[i].x, 4.5, positions[i].z); };
 
@@ -381,8 +395,13 @@
     var lastTilt = null, lastOv = '';
     ESC.frame = function (now, dt) {
       if (ESC.autoDay) { ESC.hour += dt * (24 / ESC.daySeconds); if (ESC.hour >= 24) ESC.hour -= 24; ESC.tiltDeg = trackAngle(ESC.hour); }
-      var ovKey = ESC.tiltDeg.toFixed(2) + '|' + Object.keys(ESC.override).join(',');
-      if (ovKey !== lastOv) { rebuildSpin(); lastOv = ovKey; }
+      if (opts.detailed) {
+        for (var ti = 0; ti < ESC.trackers.length; ti++) ESC.trackers[ti].ang = (ESC.override[ti] != null ? ESC.override[ti] : ESC.tiltDeg);
+        updateTrackers(ESC.trackers);
+      } else {
+        var ovKey = ESC.tiltDeg.toFixed(2) + '|' + Object.keys(ESC.override).join(',');
+        if (ovKey !== lastOv) { rebuildSpin(); lastOv = ovKey; }
+      }
       var P = solarPos(ESC.hour), el = P.el, ce = Math.cos(Math.max(el, -0.05));
       var dir = new THREE.Vector3(Math.cos(P.az) * ce, Math.sin(el), Math.sin(P.az) * ce);
       if (skyU) skyU.sunPosition.value.copy(dir);
