@@ -36,23 +36,23 @@
 <body>
   <div id="cv"></div>
   <div class="bar"><b>🏭 Planta DETALLADA — PRUEBA</b><span id="info">cargando…</span></div>
-  <div class="pick"><button id="b18" class="on">18 seguidores</button><button id="b30">30 seguidores</button></div>
+  <div class="pick"><button id="b8" class="on">8 seguidores</button><button id="b14">14 seguidores</button></div>
   <div class="hint">Arrastra = girar · 2 dedos / clic derecho = mover · rueda = zoom · el día corre solo (mira las sombras)</div>
   <script>
   (function(){
     var ESC=null, last=0, mount=document.getElementById('cv');
-    function grid(rows, cols){ var p=[]; for(var r=0;r<rows;r++)for(var c=0;c<cols;c++)p.push({x:(r-(rows-1)/2)*76, z:(c-(cols-1)/2)*7}); return p; }
+    function grid(rows, cols){ var p=[]; for(var r=0;r<rows;r++)for(var c=0;c<cols;c++)p.push({x:(r-(rows-1)/2)*78, z:(c-(cols-1)/2)*9}); return p; }
     function load(n){
       if(ESC){ try{ESC.renderer.forceContextLoss();ESC.renderer.dispose();}catch(e){} mount.innerHTML=''; }
-      var positions = n===18 ? grid(2,9) : grid(3,10);
+      var positions = n===8 ? grid(2,4) : grid(2,7);
       ESC=Escena.createPlant(THREE, mount, {positions:positions, detailed:true, dayN:172, hour:8.5, autoDay:true, daySeconds:70, loc:{lat:41.576,lon:-0.798,tz:1,dst:true}});
-      document.getElementById('info').textContent=positions.length+' seguidores · render detallado (TCU real, amortiguadores, sombras)';
+      document.getElementById('info').textContent=positions.length+' seguidores (bífila) · TCU real, ejes de transmisión, amortiguadores, sombras';
     }
     function loop(now){ requestAnimationFrame(loop); var dt=last?Math.min(0.05,(now-last)/1000):0; last=now; if(ESC)ESC.frame(now,dt); }
-    document.getElementById('b18').onclick=function(){this.classList.add('on');document.getElementById('b30').classList.remove('on');load(18);};
-    document.getElementById('b30').onclick=function(){this.classList.add('on');document.getElementById('b18').classList.remove('on');load(30);};
+    document.getElementById('b8').onclick=function(){this.classList.add('on');document.getElementById('b14').classList.remove('on');load(8);};
+    document.getElementById('b14').onclick=function(){this.classList.add('on');document.getElementById('b8').classList.remove('on');load(14);};
     addEventListener('resize',function(){if(ESC)ESC.resize();});
-    load(18); requestAnimationFrame(loop);
+    load(8); requestAnimationFrame(loop);
   })();
   </script>
 </body>

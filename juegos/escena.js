@@ -166,12 +166,24 @@
     return { spin: g, slew: slew, xs: xs, zc: zc, dampers: dampers, motorCables: motorCables };
   }
 
+  // Un SEGUIDOR real = bífila: dos vigas (motor + gemela) a zc±filaZ unidas por
+  // el EJE DE TRANSMISIÓN central (estático: va sobre los ejes de giro). Un solo
+  // motor/TCU (en la viga oeste) mueve ambas.
+  function buildBifila(scene, SG, xs, zc, detail) {
+    var filaZ = 3.0;
+    var A = buildOne(scene, SG, xs, zc - filaZ, true, detail);    // viga del MOTOR + TCU
+    var B = buildOne(scene, SG, xs, zc + filaZ, false, detail);   // viga GEMELA
+    var et = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 2 * filaZ, 14), SG.steel);
+    et.rotation.x = Math.PI / 2; et.position.set(xs, 2, zc); et.castShadow = true; scene.add(et);
+    return { spin: A.spin, slew: A.slew, spinGroups: [A.spin, B.spin], xs: xs, zc: zc, dampers: A.dampers.concat(B.dampers), motorCables: A.motorCables.concat(B.motorCables), ang: 0 };
+  }
+
   // Actualiza basculación + amortiguadores + cable de motor de cada seguidor (cada T usa su T.ang en grados)
   function updateTrackers(trackers) {
     var up = new THREE.Vector3(0, 1, 0);
     for (var t = 0; t < trackers.length; t++) {
       var T = trackers[t], ar = (T.ang || 0) * D2R, _c = Math.cos(ar), _sn = Math.sin(ar);
-      T.spin.rotation.x = ar;
+      var gs = T.spinGroups || [T.spin]; for (var gi = 0; gi < gs.length; gi++) gs[gi].rotation.x = ar;
       var di; for (di = 0; di < T.dampers.length; di++) { var Dp = T.dampers[di]; var _T = new THREE.Vector3(Dp.px, 2 + Dp.dy0 * _c - Dp.dz0 * _sn, Dp.zc + Dp.dy0 * _sn + Dp.dz0 * _c); var _dir = _T.clone().sub(Dp.B), _len = _dir.length(), _mid = Dp.B.clone().lerp(_T, 0.5); var _q = new THREE.Quaternion().setFromUnitVectors(up, _dir.clone().normalize()); Dp.body.position.copy(_mid); Dp.body.quaternion.copy(_q); Dp.body.scale.y = _len * 0.62; Dp.rod.position.copy(_mid); Dp.rod.quaternion.copy(_q); Dp.rod.scale.y = _len; }
       var mi; for (mi = 0; mi < T.motorCables.length; mi++) { var M = T.motorCables[mi]; var _Bw = new THREE.Vector3(M.xs + M.Bx, 2 + M.By * _c - M.Bz * _sn, M.zc + M.By * _sn + M.Bz * _c); var _Aw = new THREE.Vector3(M.Ax, M.Ay, M.Az), _dd = _Bw.clone().sub(_Aw), _ll = _dd.length() || 1e-4; M.mesh.position.copy(_Aw).lerp(_Bw, 0.5); M.mesh.quaternion.setFromUnitVectors(up, _dd.normalize()); M.mesh.scale.y = _ll; }
     }
@@ -330,7 +342,7 @@
     ESC.trackers = [];
     var groups = [], rebuildSpin = function () { };
     if (opts.detailed) {
-      for (var pdi = 0; pdi < N; pdi++) { var Td = buildOne(sc, SG, positions[pdi].x, positions[pdi].z, (pdi % 2 === 0), 'full'); Td.ang = 0; ESC.trackers.push(Td); }
+      for (var pdi = 0; pdi < N; pdi++) { ESC.trackers.push(buildBifila(sc, SG, positions[pdi].x, positions[pdi].z, 'full')); }
     } else {
       var KEEP = { tube: 1, tubecap: 1, mesa: 1, correa: 1, cable: 1, jbox: 1, corona: 1, reductora: 1, cuello: 1, motor: 1, tapa: 1 };
       var plan = Seguidor.instancePlan(THREE, { detail: 'mass', size: 'largo' }).filter(function (p) { return KEEP[p.key]; });
@@ -365,7 +377,7 @@
     }
 
     // hitboxes por seguidor (para tap)
-    var hbGeo = opts.detailed ? new THREE.BoxGeometry(64, 3, 4) : new THREE.BoxGeometry(5, 3, 64), hbMat = new THREE.MeshBasicMaterial({ visible: false });
+    var hbGeo = opts.detailed ? new THREE.BoxGeometry(64, 3, 9) : new THREE.BoxGeometry(5, 3, 64), hbMat = new THREE.MeshBasicMaterial({ visible: false });
     for (var hi = 0; hi < N; hi++) { var hb = new THREE.Mesh(hbGeo, hbMat); hb.position.set(positions[hi].x, 2, positions[hi].z); hb.userData.idx = hi; sc.add(hb); ESC.hitboxes.push(hb); }
     ESC.markerPos = function (i) { return new THREE.Vector3(positions[i].x, 4.5, positions[i].z); };
 
