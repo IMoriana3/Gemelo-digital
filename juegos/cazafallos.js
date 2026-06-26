@@ -10,16 +10,16 @@
   var el = function (id) { return document.getElementById(id); };
   var THREE = window.THREE;
 
-  /* puntos en coordenadas LOCALES del seguidor (hijos del grupo que bascula / del slew) */
-  // pos en coords LOCALES del grupo indicado; 'world' = en la escena (para el amortiguador,
-  // cuyo cuerpo va de la hinca a la viga y no cuelga del grupo que bascula).
+  /* Puntos en coords LOCALES del seguidor. El render es BÍFILA: T.spin es la viga
+   * OESTE (la del motor + TCU) y todas las retículas cuelgan de ella (o del slew),
+   * así giran pegadas a su pieza al bascular el seguidor. */
   var HOTSPOTS = [
     { key: 'modulo', on: 'spin', pos: [12, 0.20, 0.85], lbl: 'Módulo' },          // SOBRE la cara del panel
     { key: 'cableado', on: 'spin', pos: [-6, 0.02, -0.85], lbl: 'Cableado' },     // BAJO el panel (string/cajas)
     { key: 'correa', on: 'spin', pos: [18, 0.13, 0], lbl: 'Correa' },             // omega+abarcón sobre la viga
     { key: 'tcu', on: 'spin', pos: [1.4, -0.34, 0], lbl: 'TCU' },                 // caja colgada bajo la viga
     { key: 'motor', on: 'slew', pos: [0, -0.16, -0.62], lbl: 'Motor' },           // motor del slew (centro)
-    { key: 'amortiguador', on: 'world', pos: [24, 1.05, 0.2], lbl: 'Amortiguador' } // tirante diagonal del extremo
+    { key: 'amortiguador', on: 'spin', pos: [24, -0.9, 0.2], lbl: 'Amortiguador' } // tirante diagonal (cuelga de la viga oeste)
   ];
   var DEFECTS = {
     modulo: { label: 'Módulo / string', sym: 'Una rama produce mucho menos de lo normal y se aprecia una zona más oscura en los paneles.', exp: 'Módulo o string dañado (microgrietas / punto caliente).' },

@@ -263,9 +263,9 @@
     ESC.materials = SG; ESC.panelTex = function () { return ptex; };
 
     var TR = [];
-    if (layout === 'field') TR = [{ z: -3, xs: 0, w: true }, { z: 3, xs: 0, w: false }, { z: 9, xs: 6, w: true }, { z: 15, xs: 6, w: false }, { z: -9, xs: 6, w: true }, { z: -15, xs: 6, w: false }];
-    else if (layout === 'single') TR = [{ z: 0, xs: 0, w: true }];
-    for (var ti = 0; ti < TR.length; ti++) ESC.trackers.push(buildOne(sc, SG, TR[ti].xs, TR[ti].z, TR[ti].w, detail));
+    if (layout === 'field') TR = [{ z: -10, xs: 0 }, { z: 0, xs: 0 }, { z: 10, xs: 0 }];
+    else if (layout === 'single') TR = [{ z: 0, xs: 0 }];
+    for (var ti = 0; ti < TR.length; ti++) ESC.trackers.push(buildBifila(sc, SG, TR[ti].xs, TR[ti].z, detail));   // un seguidor = bífila (mismo render que la planta)
 
     var target = new THREE.Vector3(0, 2.4, 0);
     var ob = orbit(rnd.domElement, cam, target, layout === 'field' ? 64 : 26, layout === 'field' ? 18 : 9, 240);
